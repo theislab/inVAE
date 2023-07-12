@@ -1,2 +1,2 @@
 # inVAE
-Invariant Representation learning
+Invariant Representation Learning
