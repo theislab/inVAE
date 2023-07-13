@@ -1,0 +1,4 @@
+scanpy==1.9.3
+torch==2.0.1
+tensorboard==2.13.0
+anndata==0.8.0
