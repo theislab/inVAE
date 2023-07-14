@@ -236,9 +236,41 @@ class MLP(nn.Module):
     
 class inVAE(ABC):
 
-    @abstractmethod
-    def get_elbo(self, adata):
-        pass
+    def get_negative_elbo(
+        self, 
+        adata: Optional[AnnData] = None,
+    ):
+        if adata is None:
+            print('Getting ELBO of saved adata!')
+            
+            self.module.eval()
+
+            transformed_data = self.transformed_data
+        else:
+            print(f'Calculating ELBO of passed adata by trying to transfer setup from the adata the model was trained on!')
+
+            use_cuda = (self.device == 'cuda')
+
+            data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = use_cuda, convert = self.data_loading_encoders)
+
+            transformed_data = data_loader.dataset[:]
+        
+        # Gene counts
+        x = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
+
+        # Covariates for invariate prior
+        inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
+        inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+
+        # Covariates for spurious prior
+        spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
+        spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
+
+        elbo, _ = self.module.elbo(x, inv_covar, spur_covar)
+
+        neg_elbo = -elbo.detach().cpu().numpy()
+
+        return neg_elbo
 
     def save(
         self,
@@ -270,9 +302,11 @@ class inVAE(ABC):
 
             transformed_data = self.transformed_data
         else:
-            print(f'Calculating latent representation of passed adata by trying to transfer setup from adata trained on!')
+            print(f'Calculating latent representation of passed adata by trying to transfer setup from the adata the model was trained on!')
 
-            data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = False, convert = self.data_loading_encoders)
+            use_cuda = (self.device == 'cuda')
+
+            data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = use_cuda, convert = self.data_loading_encoders)
 
             transformed_data = data_loader.dataset[:]
 
@@ -450,7 +484,7 @@ class inVAE(ABC):
         ## Define transformers for the data
 
         # First: encode the batches
-        encoder_batch = OneHotEncoder(sparse=False, dtype=np.float32)
+        encoder_batch = OneHotEncoder(sparse_output=False, dtype=np.float32)
         encoder_batch.fit(adata.obs[batch_key].to_numpy()[:, None])
 
         dict_encoders[batch_key] = encoder_batch
@@ -467,7 +501,7 @@ class inVAE(ABC):
             elif key == 'cat':
                 for covar in covars:
                     # Default for now is to use one-hot encoding for categorical vars
-                    dict_encoders[covar] = OneHotEncoder(sparse=False, dtype=np.float32, handle_unknown='ignore')
+                    dict_encoders[covar] = OneHotEncoder(sparse_output=False, dtype=np.float32, handle_unknown='ignore')
                     dict_encoders[covar].fit(adata.obs[covar].to_numpy()[:, None])
 
                     # Try list approach:
@@ -483,7 +517,7 @@ class inVAE(ABC):
             elif key == 'cat':
                 for covar in covars:
                     # Default for now is to use one-hot encoding for categorical vars
-                    dict_encoders[covar] = OneHotEncoder(sparse=False, dtype=np.float32, handle_unknown='ignore')
+                    dict_encoders[covar] = OneHotEncoder(sparse_output=False, dtype=np.float32, handle_unknown='ignore')
                     dict_encoders[covar].fit(adata.obs[covar].to_numpy()[:, None])
 
                     # list approach
@@ -617,9 +651,6 @@ class FinVAE(inVAE):
             inv_covar_dim = self.inv_covar_dim,
             spur_covar_dim = self.spur_covar_dim,
         )
-        
-    def get_elbo(self, adata):
-        pass
     
 class FinVAEmodule(nn.Module):
 
@@ -1054,9 +1085,6 @@ class NFinVAE(inVAE):
             hidden_dim_prior = hidden_dim_prior,
             n_layers_prior = n_layers_prior
         )
-        
-    def get_elbo(self, adata):
-        pass
 
 class NFinVAEmodule(nn.Module):
 
