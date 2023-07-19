@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+
+[project]
+name = "inVAE"
+dynamic = ["version"]
+authors = [
+  { name="Ferdinand Kapl", email="f.kapl@web.de" },
+  { name="Hananeh Aliee", email="hana.aliee@gmail.com" }
+]
+description = "Package for invariant VAE models on single-cell data"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "scanpy",
+  "torch",
+  "tensorboard",
+  "anndata==0.8.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/theislab/inVAE"
