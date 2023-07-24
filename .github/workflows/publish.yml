@@ -7,13 +7,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v2
         with:
           fetch-depth: 0
-      - run: python3 -m pip install --upgrade build && python3 -m build
-      - name: Publish package
-        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v2
         with:
-          user: lila167
+                python-version: 3.8 
+
+      - name: Install pip dependencies
+        run: |
+                python -m pip install --upgrade pip
+                pip install build twine
+
+      - name: Build a binary wheel and a source tarball
+        run: |
+                python -m build --sdist --wheel --outdir dist/
+                twine check dist/*
+
+      - name: Publish package on Test PyPI
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          user: __token__
           password: ${{ secrets.TEST_PYPI_API_TOKEN }}
           repository-url: https://test.pypi.org/legacy/
