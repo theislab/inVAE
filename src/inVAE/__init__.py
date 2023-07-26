@@ -1,1 +1,1 @@
-# TODO: import statements
+from .model import FinVAE, NFinVAE
