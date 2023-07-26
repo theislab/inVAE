@@ -60,8 +60,6 @@ def debug_models(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cpu'):
         model = FinVAE(
             adata = adata_train,
             layer = 'counts',
-            batch_key = 'batch',
-            label_key = 'cell_type',
             inv_covar_keys = inv_covar_keys,
             spur_covar_keys = spur_covar_keys,
             latent_dim = 10, 
@@ -70,7 +68,7 @@ def debug_models(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cpu'):
             hidden_dim = 128,
             activation = 'relu', 
             slope = 0.1, # only needed when activation is Leaky ReLU ('lrelu')
-            device = 'cpu',
+            device = device,
             normalize_constant = 1.0, 
             fix_mean_prior = True,
             fix_var_prior = False,
@@ -84,8 +82,6 @@ def debug_models(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cpu'):
         model = NFinVAE(
             adata = adata_train,
             layer = 'counts',
-            batch_key = 'batch',
-            label_key = 'cell_type',
             inv_covar_keys = inv_covar_keys,
             spur_covar_keys = spur_covar_keys,
             latent_dim = 10, 
@@ -94,7 +90,7 @@ def debug_models(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cpu'):
             hidden_dim = 128,
             activation = 'relu', 
             slope = 0.1, # only needed when activation is Leaky ReLU ('lrelu')
-            device = 'cpu',
+            device = device,
             normalize_constant = 1.0, 
             fix_mean_spur_prior = True,
             fix_var_spur_prior = False,
@@ -170,8 +166,6 @@ def debug_saving_loading(model_name = 'NFinVAE', decoder_dist = 'nb', device_fro
     if model_name == 'FinVAE':
         hp_dict = dict(
             layer = 'counts',
-            batch_key = 'batch',
-            label_key = 'cell_type',
             inv_covar_keys = inv_covar_keys,
             spur_covar_keys = spur_covar_keys,
             latent_dim = 10, 
@@ -198,8 +192,6 @@ def debug_saving_loading(model_name = 'NFinVAE', decoder_dist = 'nb', device_fro
     else:
         hp_dict = dict(
             layer = 'counts',
-            batch_key = 'batch',
-            label_key = 'cell_type',
             inv_covar_keys = inv_covar_keys,
             spur_covar_keys = spur_covar_keys,
             latent_dim = 10, 
@@ -307,8 +299,6 @@ def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device =
         model = FinVAE(
             adata = adata_train,
             layer = 'counts',
-            batch_key = 'batch',
-            label_key = 'cell_type',
             inv_covar_keys = inv_covar_keys,
             spur_covar_keys = spur_covar_keys,
             latent_dim = 10, 
@@ -331,8 +321,6 @@ def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device =
         model = NFinVAE(
             adata = adata_train,
             layer = 'counts',
-            batch_key = 'batch',
-            label_key = 'cell_type',
             inv_covar_keys = inv_covar_keys,
             spur_covar_keys = spur_covar_keys,
             latent_dim = 10, 
@@ -358,6 +346,8 @@ def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device =
 
     model.train_classifier(
         adata_val[:100],
+        batch_key = 'batch',
+        label_key = 'cell_type',
         n_epochs_train_class = 500,
         n_epochs_opt_val = 10,
         nr_samples = 10,

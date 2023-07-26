@@ -192,6 +192,8 @@ class inVAE(ABC):
     def train_classifier(
         self,
         adata_val: AnnData,
+        batch_key: Optional[str] = None,
+        label_key: Optional[str] = None,
         n_epochs_train_class: int = 500,
         n_epochs_opt_val: int = 100,
         nr_samples: int = 100,
@@ -203,6 +205,10 @@ class inVAE(ABC):
         class_print_every_n_epochs: int = None,
         opt_val_print_every_n_epochs: int = None
     ):
+        # Save batch and label_key
+        self.batch_key = batch_key
+        self.label_key = label_key
+
         if class_print_every_n_epochs is None:
             class_print_every_n_epochs = n_epochs_train_class / 5
 
@@ -211,9 +217,6 @@ class inVAE(ABC):
 
         val_loader = AnnLoader(adata_val, batch_size = 1, shuffle = False, use_cuda = (self.device == 'cuda'), convert = self.data_loading_encoders)
 
-        # TODO: need full_data_train
-        #full_data_train = self.transformed_data
-        
         full_data_val = val_loader.dataset[:]
         x_val = full_data_val.layers[self.layer] if self.layer is not None else full_data_val.X
 
@@ -223,27 +226,30 @@ class inVAE(ABC):
         latent_dim = self.latent_dim
         latent_dim_inv = self.latent_dim_inv
 
-        # Storing the initially sampled z
-        #init_z = torch.zeros([nr_val_obs, latent_dim], device=self.device)
-
         # Get invariant latent space representation
         latent_sample = torch.tensor(self.get_latent_representation(self.adata, latent_type='full'), device=self.device).view(-1, latent_dim)
 
-        encoder_batch = LabelEncoder()
-        batch_tensor_train = torch.tensor(encoder_batch.fit_transform(self.adata.obs[self.batch_key]), device = self.device)
+        # Set-up encoders for batches and labels
+        
+        # Label Encoder for cell_types (or in general: label key)
+        if label_key is not None:
+            encoder_label = LabelEncoder()
+            encoder_label.fit(self.adata.obs[label_key])
+
+            self.dict_encoders[f'label_{label_key}'] = encoder_label
+        else:
+            raise ValueError('Please specify the key for the labels in order to train the classifier!')
 
         encoder_label = self.dict_encoders[f'label_{self.label_key}']
         label_tensor_train = torch.tensor(encoder_label.fit_transform(self.adata.obs[self.label_key]), device = self.device)
         label_tensor_val = torch.tensor(encoder_label.transform(adata_val.obs[self.label_key]), device = self.device)
 
-        # TODO: need this data?
-        #data_train_with_z = torch.cat([
-        #    label_tensor_train.view(-1, 1),
-        #    batch_tensor_train.view(-1, 1), 
-        #    latent_sample
-        #], dim = 1)
+        encoder_batch = LabelEncoder()
+        batch_tensor_train = torch.tensor(encoder_batch.fit_transform(self.adata.obs[self.batch_key]), device = self.device)
 
-        #dt = pd.DataFrame(data_train_with_z.cpu().numpy(), columns=['y', 'e'] + [f'z{i+1}' for i in range(latent_dim)])
+        if len(encoder_label.classes_) == 1:
+            print('Warning: There is only one batch in the (training) data. This model might not behave as intended.')
+            print('Consider using the whole latent space (option: type = "full") as a representation instead of only the invariant latent space!')
 
         print('Starting sampling of latents for the val data...')
         
@@ -255,39 +261,12 @@ class inVAE(ABC):
         )
 
         print('Sampling done!')
-        # TODO: Need this variable?
-        #parent_index_with_zero = range(self.latent_dim_inv)
-        #index_parent_y = [pa + 1 for pa in parent_index_with_zero]
-
-        # TODO: after here
-
-        ## Hyperparameters from lists and ranges
-        
-        #n_epochs_train = 500
-        #n_epochs_test = 100
-        #n_epochs_val = n_epochs_test
-        
-        # HP for classifier
-        #hp_dict = {
-        #    'hidden_dim': np.random.choice([10*i for i in range(1,11)]),
-        #    'n_layers': np.random.choice([1, 2]),
-        #    'activation': np.random.choice(['lrelu', 'relu'])
-        #}
 
         hp_dict_class = {
             'hidden_dim': hidden_dim_class,
             'n_layers': n_layers_class,
             'activation': act_class
         }
-
-        #lr_test_latent = 10**np.random.uniform(-1, -4)
-        #lr_val_latent = lr_test_latent
-        #lr_train_class = 10**np.random.uniform(-1, -3)
-
-        # Deault is batch size one: batch_size = 1
-        #optim_latent = 'Adam'
-        
-        #print(f'Doing experiment for parents {index_parent_y} with experiment id {exp_id}!')
         
         classifier = ModularMultiClassifier(
             input_dim = self.latent_dim_inv, 
@@ -296,7 +275,6 @@ class inVAE(ABC):
             device = self.device
         ).to(self.device)
 
-        # RENAME: latent = latent_sample
         target = label_tensor_train.view((-1, 1))
         
         env_tensor = batch_tensor_train.view(-1, 1)
@@ -311,10 +289,6 @@ class inVAE(ABC):
                 'target': target[(env_tensor == e).view(-1)]
             })
         
-        # TODO: remove
-        #print(f'The shape of latent is: {envs[0]["latent"].shape} and {envs[1]["latent"].shape}')
-        #print(f'The shape of target is: {envs[0]["target"].shape} and {envs[1]["target"].shape}')
-
         optimizer_train = optim.Adam(classifier.parameters(), lr = lr_train_class)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer_train, factor=0.1, patience=50, verbose=True)
 
@@ -350,17 +324,10 @@ class inVAE(ABC):
                         
                 print(f'\tepoch {index_train+1}/{n_epochs_train_class}: nll loss {nll_loss:.2f}\t train_acc {acc:.2f}')
 
-        #hp_dict['train_acc'] = acc
-        #hp_dict['lr_train_class'] = lr_train_class
-        #hp_dict['lr_test_latent'] = lr_test_latent
-
         # Assign classifier to model to use later for test prediction
         self.classifier = classifier
         self.classifier.eval()
         
-        #parent_index_with_zero = [pa - 1 for pa in index_parent_y]
-        #non_parent_index = list(set(range(latent_dim)) - set(parent_index_with_zero))
-
         with torch.no_grad():
             y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
             y_true = label_tensor_val.view(-1, 1)
@@ -369,17 +336,9 @@ class inVAE(ABC):
             pred_val = y_pred_val.argmax(dim = 1, keepdim = True)
             acc_val = pred_val.eq(y_true.view_as(pred_val)).sum().item() / y_true.shape[0]
 
-        #hp_dict['val_acc_no_opt'] = acc_val
-            
         print(f'\tThe val acc before optimizing the latents is: {acc_val:.3f}')
 
-        #loss_array = np.zeros([n_epochs_val])
-        #decoder_loss_array = np.zeros_like(loss_array)
-        #norm_loss_array = np.zeros_like(loss_array)
-        #nll_loss_array = np.zeros_like(loss_array)
         acc_array = np.zeros([n_epochs_opt_val])
-        
-        #print(f'Before training first z in init_z is:\n{init_z[0]}')
 
         self.optimize_latent_dict = {
             'lr_opt_val': lr_opt_val,
@@ -389,7 +348,7 @@ class inVAE(ABC):
 
         print('Starting to optimize sampled latents for validation data...')
 
-        # TODO: call to function
+        # Optimize latents for val data (see function description)
 
         final_z, acc_array = self._optimize_latents_for_prediction(
             x = x_val, # dim: nr_obs_val x genes
@@ -408,164 +367,7 @@ class inVAE(ABC):
         for i in range(0, n_epochs_opt_val, opt_val_print_every_n_epochs):
             print(f'\tThe val acc after optimizing {i+1}/{n_epochs_opt_val} is: {acc_array[i]:.3f}')
             
-        #print(f'\tThe nll loss at the end of experiment {exp_id} is: {nll_loss_array[(n_epochs_test - 1)]:.2f}')
         print(f'\tThe val acc after optimizing the latents is: {acc_array[(n_epochs_opt_val - 1)]:.3f}')
-        #hp_dict['val_acc_after_opt'] = acc_array[(n_epochs_val - 1)]
-
-        """ if calc_test_acc:
-            with torch.no_grad():
-                y_pred_test = classifier(init_z_test[:, parent_index_with_zero].view(-1, len(parent_index_with_zero)).float().to(device))
-                #y_true = full_data_test.obs['cell_type'].view(-1,1)
-                y_true = cell_type_tensor_test.view(-1,1)
-                
-                # Calculate accuracy
-                pred_test = y_pred_test.argmax(dim = 1, keepdim = True)
-                acc_test = pred_test.eq(y_true.view_as(pred_test)).sum().item() / y_true.shape[0]
-
-            hp_dict['test_acc_no_opt'] = acc_test
-                
-            print(f'\tThe test acc before optimizing the latents of experiment {exp_id} is: {acc_test:.3f}')
-
-            nr_batches = nr_test_samples // batch_size
-
-            loss_array = np.zeros([n_epochs_test])
-            decoder_loss_array = np.zeros_like(loss_array)
-            norm_loss_array = np.zeros_like(loss_array)
-            nll_loss_array = np.zeros_like(loss_array)
-            acc_array = np.zeros_like(loss_array)
-            
-            #print(f'Before training first z in init_z is:\n{init_z[0]}')
-            
-            for iteration in range(nr_batches):
-                x, y, e, z = (
-                    full_data_test.layers[use_layer][(iteration * batch_size):((iteration + 1)*batch_size)].to(device), 
-                    #full_data_test.obs['cell_type'][(iteration * batch_size):((iteration + 1)*batch_size)].to(device), 
-                    cell_type_tensor_test[(iteration * batch_size):((iteration + 1)*batch_size)].to(device), 
-                    full_data_test.obs['batch'][(iteration * batch_size):((iteration + 1)*batch_size)].to(device), 
-                    init_z_test[(iteration * batch_size):((iteration + 1)*batch_size)].to(device)
-                )
-
-                z.requires_grad_(True)
-
-                if optim_test == 'SGD':
-                    optimizer_test = optim.SGD([z], lr = lr_test_latent, weight_decay = lr_test_latent/10)
-                elif optim_test == 'Adam':
-                    optimizer_test = optim.Adam([z], lr = lr_test_latent, weight_decay = lr_test_latent/10)
-                    
-                for index_test in range(1, (n_epochs_test+1)):
-                    
-                    if model_name == 'nf_ivae':
-                        if model.decoder_dist == 'normal':
-                            decoder_mean = model.decode(z.view(-1, latent_dim).float())
-                            log_px_z = log_normal(x.view((-1, x_dim)), decoder_mean.view((-1, x_dim)), model.decoder_var)
-                        elif model.decoder_dist == 'nb':
-                            decoder_mean, decoder_theta = model.decode(z.view(-1, latent_dim).float())
-
-                            # multiply with library size to get "correct" means
-                            decoder_mean = decoder_mean * x.view(-1, x_dim).sum(dim=-1, keepdim=True)
-
-                            log_px_z = log_nb_positive(x, decoder_mean, decoder_theta)
-                    elif model_name != 'nf_ivae':
-                        if model.decoder_dist == 'normal':
-                            decoder_params = model.decode(z.view(-1, latent_dim).float())
-                            log_px_z = model.decoder_dist.log_pdf(x.view(-1, x_dim), *decoder_params)
-                        elif model.decoder_dist == 'nb':
-                            decoder_mean, decoder_theta = model.decode(z.view(-1, latent_dim).float())
-
-                            # multiply with library size to get "correct" means
-                            decoder_mean = decoder_mean * x.view(-1, x_dim).sum(dim=-1, keepdim=True)
-
-                            log_px_z = log_nb_positive(x, decoder_mean, decoder_theta)
-
-                    loss = (
-                        log_px_z.sum() #-
-                        #imp_z_causal * torch.pow(torch.norm(z, dim = 1), 2).mean()
-                    )
-                    
-                    ## Optimizer part
-                    optimizer_test.zero_grad()
-                    loss.mul(-1).backward()
-                    optimizer_test.step()
-
-                    ## Logging part
-                    loss_temp = loss.mul(-1).detach().cpu().numpy()
-                    loss_array[(index_test - 1)] = loss_array[(index_test - 1)] + loss_temp
-
-                    decoder_loss = log_px_z.sum().detach().cpu().numpy()
-                    decoder_loss_array[(index_test - 1)] = decoder_loss_array[(index_test - 1)] + decoder_loss
-                    
-                    norm_z = (imp_z_causal * torch.pow(torch.norm(z, dim = 1), 2).sum()).detach().cpu().numpy()
-                    norm_loss_array[(index_test - 1)] = norm_loss_array[(index_test - 1)] + norm_z
-                    
-                    with torch.no_grad():
-                        #print(f'The classifier is on device {classifier.device}')
-                        #print(f'The init_z are on device {init_z.device}')
-                        
-                        # Calculate nll loss
-                        y_pred = classifier(z[:, parent_index_with_zero].view(-1, len(parent_index_with_zero)).float().to(device))
-                        y_true = y.view(-1,1)
-                        
-                        nll_loss = F.nll_loss(y_pred, y_true.view(-1), reduction = 'sum')
-                        
-                        nll_loss_array[(index_test - 1)] = nll_loss_array[(index_test - 1)] + nll_loss.item()
-                            
-                        # Calculate accuracy
-                        pred = y_pred.argmax(dim = 1, keepdim = True)
-                        acc_array[(index_test - 1)] = acc_array[(index_test - 1)] + pred.eq(y_true.view_as(pred)).sum().item()
-                        
-            assert len(init_z_test) == nr_test_samples
-    
-            loss_array = loss_array / nr_test_samples
-            decoder_loss_array = decoder_loss_array / nr_test_samples
-            norm_loss_array = norm_loss_array / nr_test_samples
-            nll_loss_array = nll_loss_array / nr_test_samples
-            acc_array = acc_array / nr_test_samples
-            
-            for index_epoch in range(n_epochs_test):
-                test_writer.add_scalar('Test/loss', loss_array[index_epoch], index_epoch)
-                test_writer.add_scalar('Test/decoder_loss', decoder_loss_array[index_epoch], index_epoch)
-                test_writer.add_scalar('Test/norm_loss', norm_loss_array[index_epoch], index_epoch)
-                test_writer.add_scalar('Test/nll_loss', nll_loss_array[index_epoch], index_epoch)
-                test_writer.add_scalar('Test/acc', acc_array[index_epoch], index_epoch)
-
-            # Save acc per class to diagnose the bad examples
-            with torch.no_grad():
-                y_pred_test = classifier(init_z_test[:, parent_index_with_zero].view(-1, len(parent_index_with_zero)).float().to(device))
-                #y_true_test = full_data_test.obs['cell_type'].view(-1, 1)
-                y_true_test = cell_type_tensor_test.view(-1, 1)
-                pred_test = y_pred_test.argmax(dim = 1, keepdim = True)
-
-            #list_of_classes = torch.unique(full_data_test.obs['cell_type']) #range(classifier.n_classes)
-            list_of_classes = torch.unique(cell_type_tensor_test)
-            acc_per_class_test = [0 for c in range(len(list_of_classes))]
-
-            for index_class in range(len(list_of_classes)):
-                acc_per_class_test[index_class] = (
-                    ((pred_test == y_true_test.view_as(pred_test)) * (y_true_test == list_of_classes[index_class])).float().sum().item() / 
-                    (y_true_test == list_of_classes[index_class]).sum().item()
-                )
-            
-            print(f'\tThe test acc at the end per class is: \n\t{encoder_cell_type_label.inverse_transform(list_of_classes.cpu().numpy())}\n\t{acc_per_class_test}')
-                
-            #print(f'\tThe nll loss at the end of experiment {exp_id} is: {nll_loss_array[(n_epochs_test - 1)]:.2f}')
-            print(f'\tThe test acc at the end of experiment {exp_id} is: {acc_array[(n_epochs_test - 1)]:.3f}')
-            hp_dict['test_acc_after_opt_per_class'] = acc_per_class_test
-            hp_dict['test_acc_after_opt'] = acc_array[(n_epochs_test - 1)]
- """
-        ## Save HP in dataframe for investigating best choices
-        #hp_dict['experiment_id'] = experiment_id
-        #hp_dict['exp_id'] = exp_id
-        #hp_dict['val_label_match'] = sampling_dict['val_label_match']
-
-        #if calc_test_acc:
-        #    hp_dict['test_label_match'] = sampling_dict['test_label_match']
-        #    hp_dict['test_label_match_per_class'] = sampling_dict['test_label_match_per_class']
-        #    hp_dict['test_cell_types'] = encoder_cell_type_label.inverse_transform(list_of_classes.cpu().numpy())
-#
-        #hp_dict['no_causal'] = no_causal
-
-        #output_dt = pd.DataFrame([hp_dict])
-        #experiments_dt = pd.concat([experiments_dt, output_dt], ignore_index=True)
 
     def train(
         self,
@@ -607,7 +409,6 @@ class inVAE(ABC):
         iteration = 0
         loss_epoch = 0
 
-        #raise ValueError('end of train...')
         print('Starting training of model:')
 
         while iteration < max_iter:
@@ -626,16 +427,11 @@ class inVAE(ABC):
                 spur_tensor_list = [batch.obs[covar].float() for covar in self.list_spur_covar]
                 spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
-                #print(f'Shape of X: {x.shape}\nfirst obs: {x[0]}\nand datatype {x.dtype}')
-
                 iteration += 1
 
                 optimizer.zero_grad(set_to_none=True)
 
                 objective_fct, _ = self.module.elbo(x, inv_covar, spur_covar)
-
-                #print(f'\tFor the {i+1}-th iteration the loss is: {-objective_fct.detach().numpy()}')
-                #print(f'and the estimated z is:\n {z_est.detach().numpy()}')
 
                 objective_fct.mul(-1).backward()
                 optimizer.step()
@@ -751,7 +547,7 @@ class inVAE(ABC):
             if not is_count_data:
                 print(f'Non-count data detected in adata in layer {layer} and the decoder distribution is "negative-binomial". Check that the data really contains counts!')
         elif decoder_dist == 'normal':
-            #print('Assuming data is scaled to mean zero and variance one per gene, for decoder distribution "normal"!')
+            # Assuming data is scaled to mean zero and variance one per gene, for decoder distribution "normal"
             mean_values = (adata.layers[layer] if layer is not None else adata.X).mean(axis=0)
             var_values = (adata.layers[layer] if layer is not None else adata.X).var(axis=0)
 
@@ -773,9 +569,6 @@ class inVAE(ABC):
     @staticmethod
     def setup_adata(
         adata: AnnData,
-        #layer: Optional[str] = None,
-        batch_key: Optional[str] = None,
-        label_key: Optional[str] = None,
         inv_covar_keys: Dict[str, List[str]] = None,
         spur_covar_keys: Dict[str, List[str]] = None,
         device: str = 'cpu',
@@ -791,24 +584,6 @@ class inVAE(ABC):
 
         ## Define transformers for the data
 
-        # First: encode the batches
-        encoder_batch = OneHotEncoder(sparse_output=False, dtype=np.float32)
-        encoder_batch.fit(adata.obs[batch_key].to_numpy()[:, None])
-
-        dict_encoders[batch_key] = encoder_batch
-        obs_encoders[batch_key] = (lambda b: encoder_batch.transform(b.to_numpy()[:, None]))
-
-        # Label Encoder for cell_types (or in general: label key)
-        if label_key is not None:
-            encoder_label = LabelEncoder()
-            encoder_label.fit(adata.obs[label_key])
-
-            dict_encoders[f'label_{label_key}'] = encoder_label
-
-        if len(encoder_batch.categories_[0]) == 1:
-            print('Warning: There is only one batch in the (training) data. This model might not behave as intended.')
-            print('Consider using the whole latent space (option: type = "full") as a representation instead of only the invariant latent space!')
-
         for key, covars in spur_covar_keys.items():
             if key == 'cont':
                 # Do we have to do something?
@@ -819,8 +594,6 @@ class inVAE(ABC):
                     dict_encoders[covar] = OneHotEncoder(sparse_output=False, dtype=np.float32, handle_unknown='ignore')
                     dict_encoders[covar].fit(adata.obs[covar].to_numpy()[:, None])
 
-                    # Try list approach:
-                    #obs_encoders[covar] = lambda s: dict_encoders[covar].transform(s.to_numpy()[:, None])
                     obs_encoder_list.append({covar: lambda s, covar=covar: dict_encoders[covar].transform(s.to_numpy()[:, None])})
             else:
                 raise ValueError(f'{key} is not in ["cont", "cat"] and therefore not a valid covariate key for the prior!')
@@ -835,8 +608,6 @@ class inVAE(ABC):
                     dict_encoders[covar] = OneHotEncoder(sparse_output=False, dtype=np.float32, handle_unknown='ignore')
                     dict_encoders[covar].fit(adata.obs[covar].to_numpy()[:, None])
 
-                    # list approach
-                    #obs_encoders[covar] = lambda i: dict_encoders[covar].transform(i.to_numpy()[:, None])
                     obs_encoder_list.append({covar: lambda s, covar=covar: dict_encoders[covar].transform(s.to_numpy()[:, None])})
             else:
                 raise ValueError(f'{key} is not in ["cont", "cat"] and therefore not a valid covariate key for the prior!')
@@ -854,5 +625,4 @@ class inVAE(ABC):
 
         transformed_data = data_loader.dataset[:]
 
-        # Dict or tuple as return?
         return (dict_encoders, encoders, data_loader, transformed_data)

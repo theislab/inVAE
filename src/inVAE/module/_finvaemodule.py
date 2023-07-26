@@ -58,14 +58,12 @@ class FinVAEmodule(nn.Module):
 
         # Data related values
 
-        # Number of genes -> Rename?
+        # Number of genes
         self.data_dim = data_dim
 
         # Need to setup data first; then add dim of covariates:
         self.inv_covar_dim = inv_covar_dim
         self.spur_covar_dim = spur_covar_dim
-
-        #raise TypeError('Debug init function of FinVAEmodule...')
 
         ## Two priors:
         # One prior for invariant latent space conditioned on invariant covariates

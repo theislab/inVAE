@@ -28,18 +28,6 @@ def check_nonnegative_integers(X: Union[np.ndarray, sparse.spmatrix]):
     else:
         return True
 
-def log_pdf(x, mu, v, reduce=True, param_shape=None, device = 'cpu'):
-    """compute the log-pdf of a normal distribution with diagonal covariance"""
-    if param_shape is not None:
-        mu, v = mu.view(param_shape), v.view(param_shape)
-
-    c = 2 * np.pi * torch.ones(1).to(device)
-    lpdf = -0.5 * (torch.log(c) + v.log() + (x - mu).pow(2).div(v))
-    if reduce:
-        return lpdf.sum(dim=-1)
-    else:
-        return lpdf
-
 def log_nb_positive(
     x: torch.Tensor,
     mu: torch.Tensor,

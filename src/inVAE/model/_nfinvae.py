@@ -12,8 +12,6 @@ class NFinVAE(inVAE):
         self, 
         adata: AnnData,
         layer: Optional[str] = None,
-        batch_key: Optional[str] = None,
-        label_key: Optional[str] = None,
         inv_covar_keys: Dict[str, List[str]] = None,
         spur_covar_keys: Dict[str, List[str]] = None,
         latent_dim: int = 10, 
@@ -50,8 +48,6 @@ class NFinVAE(inVAE):
         
         # Assign all keys
         self.layer = layer
-        self.batch_key = batch_key
-        self.label_key = label_key
 
         self.inv_covar_keys = inv_covar_keys
         self.spur_covar_keys = spur_covar_keys
@@ -73,7 +69,7 @@ class NFinVAE(inVAE):
         # Check data first
         self.check_data(adata, layer, decoder_dist)
 
-        self.dict_encoders, self.data_loading_encoders, self.data_loader, self.transformed_data = self.setup_adata(adata, batch_key, label_key, inv_covar_keys, spur_covar_keys, device, batch_size)
+        self.dict_encoders, self.data_loading_encoders, self.data_loader, self.transformed_data = self.setup_adata(adata, inv_covar_keys, spur_covar_keys, device, batch_size)
         
         # Flatten list of covariates
         self.list_spur_covar = [value for key, value in self.spur_covar_keys.items() if key in ['cat', 'cont']]
