@@ -156,7 +156,7 @@ class inVAE(ABC):
                 data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = use_cuda, convert = self.data_loading_encoders)
                 transformed_data = data_loader.dataset[:]
 
-                # Assign x, z, y and nr_samples
+                # Assign x, z, y, nr_samples and (if necessary) invariant and spurious covariates
                 x_test = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
                 latent_train = torch.tensor(self.get_latent_representation(latent_type = 'full', verbose = False), device=self.device)
 
@@ -164,18 +164,30 @@ class inVAE(ABC):
                 label_tensor_test = torch.tensor(encoder_label.transform(adata.obs[self.label_key]), device = self.device)
 
                 nr_samples = self.optimize_latent_dict['nr_samples']
+                
+                # Covariates for invariate prior
+                inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
+                inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+
+                # Covariates for spurious prior
+                spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
+                spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
                 # sampling and optimizing latent for test
                 init_z_test = self._sample_latents_for_prediction(
                     x = x_test,
                     latent_sample = latent_train,
                     nr_samples = nr_samples,
+                    inv_covar = inv_covar,
+                    spur_covar = spur_covar
                 )
 
                 final_z_test, _ = self._optimize_latents_for_prediction(
                     x = x_test, # dim: nr_obs_test x genes
                     init_z = init_z_test, # dim: nr_obs_test x latent_dim
-                    label_tensor = label_tensor_test # dim: nr_obs_test x 1
+                    label_tensor = label_tensor_test, # dim: nr_obs_test x 1
+                    inv_covar = inv_covar,
+                    spur_covar = spur_covar
                 )
 
                 self.saved_latent['test'] = final_z_test.clone()
@@ -217,8 +229,17 @@ class inVAE(ABC):
 
         val_loader = AnnLoader(adata_val, batch_size = 1, shuffle = False, use_cuda = (self.device == 'cuda'), convert = self.data_loading_encoders)
 
+        # Assign x_val, and (if necessary) invariant and spurious covariates
         full_data_val = val_loader.dataset[:]
         x_val = full_data_val.layers[self.layer] if self.layer is not None else full_data_val.X
+
+        # Covariates for invariate prior
+        inv_tensor_list = [full_data_val.obs[covar].float() for covar in self.list_inv_covar]
+        inv_covar_val = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+
+        # Covariates for spurious prior
+        spur_tensor_list = [full_data_val.obs[covar].float() for covar in self.list_spur_covar]
+        spur_covar_val = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
         self.module.eval()
 
@@ -258,6 +279,8 @@ class inVAE(ABC):
             x = x_val,
             latent_sample = latent_sample,
             nr_samples = nr_samples,
+            inv_covar = inv_covar_val,
+            spur_covar = spur_covar_val
         )
 
         print('Sampling done!')
@@ -353,7 +376,9 @@ class inVAE(ABC):
         final_z, acc_array = self._optimize_latents_for_prediction(
             x = x_val, # dim: nr_obs_val x genes
             init_z = init_z, # dim: nr_obs_val x latent_dim
-            label_tensor = label_tensor_val # dim: nr_obs_val x 1
+            label_tensor = label_tensor_val, # dim: nr_obs_val x 1
+            inv_covar = inv_covar_val,
+            spur_covar = spur_covar_val
         )
 
         self.saved_latent['val'] = final_z.clone()
@@ -462,7 +487,9 @@ class inVAE(ABC):
         self,
         x: torch.Tensor, # dim: nr_obs x genes
         init_z: torch.Tensor, # dim: nr_obs x latent_dim
-        label_tensor: torch.Tensor # dim: nr_obs x 1
+        label_tensor: torch.Tensor, # dim: nr_obs x 1
+        inv_covar: torch.Tensor = None,
+        spur_covar: torch.Tensor = None,
     ):  
         # Extract parameters for optimizing the latents from dict (sha
         lr_opt_val = self.optimize_latent_dict['lr_opt_val']
@@ -481,12 +508,21 @@ class inVAE(ABC):
                 init_z[ind]
             )
 
+            if self.module.inject_covar_in_latent:
+                inv_tmp, spur_tmp = (
+                    inv_covar[ind],
+                    spur_covar[ind]
+                )
+
             z_tmp.requires_grad_(True)
 
             optimizer_val = optim.Adam([z_tmp], lr = lr_opt_val, weight_decay = lr_opt_val/10)
                 
             for iteration in range(1, (n_epochs_opt_val+1)):
-                log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, latent_dim))
+                if self.module.inject_covar_in_latent:
+                    log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, latent_dim), inv_tmp, spur_tmp)
+                else:
+                    log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, latent_dim))
 
                 loss = (
                     log_px_z.sum()
@@ -512,6 +548,8 @@ class inVAE(ABC):
         x: torch.Tensor, # dim: nr_obs x genes
         latent_sample: torch.Tensor, # dim: nr_obs_train x latent_dim
         nr_samples: int = 100,
+        inv_covar: torch.Tensor = None,
+        spur_covar: torch.Tensor = None,
     ):
         # Storing the initially sampled z
         init_z = torch.zeros([x.shape[0], latent_sample.shape[1]], device=self.device)
@@ -527,9 +565,18 @@ class inVAE(ABC):
                 x[index_val_example].expand(nr_samples, -1).to(self.device),
                 # Shape: nr_samples x latent_dim
                 single_train_z.to(self.device)    
-            ) 
+            )
 
-            log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp)
+            if self.module.inject_covar_in_latent:
+                inv_tmp, spur_tmp = (
+                    inv_covar[index_val_example].expand(nr_samples, -1),
+                    spur_covar[index_val_example].expand(nr_samples, -1)
+                )
+
+            if self.module.inject_covar_in_latent:
+                log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, self.latent_dim), inv_tmp, spur_tmp)
+            else:
+                log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, self.latent_dim))
 
             init_z[index_val_example] = single_train_z[torch.argmax(log_px_z).view(-1)]
 

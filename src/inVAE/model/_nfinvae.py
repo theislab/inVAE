@@ -31,6 +31,7 @@ class NFinVAE(inVAE):
         output_dim_prior_nn: int =  None,
         hidden_dim_prior: int =  None,
         n_layers_prior: int =  None,
+        inject_covar_in_latent: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -102,5 +103,6 @@ class NFinVAE(inVAE):
             reg_sm = reg_sm,
             output_dim_prior_nn = output_dim_prior_nn,
             hidden_dim_prior = hidden_dim_prior,
-            n_layers_prior = n_layers_prior
+            n_layers_prior = n_layers_prior,
+            inject_covar_in_latent = inject_covar_in_latent,
         )

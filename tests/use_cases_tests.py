@@ -247,7 +247,7 @@ def debug_saving_loading(model_name = 'NFinVAE', decoder_dist = 'nb', device_fro
     print(f'The shape of the latents is: "train"-{latent.shape}, "val"-{latent_val.shape}')
     print(f'The negative elbo is: "train"-{neg_elbo:.2f}, "val"-{neg_elbo_val:.2f}')
 
-def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cuda'):
+def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cuda', inject_covar_in_latent = False):
     print(os.getcwd())
     adata = sc.read(f'./data/multiome_gex_processed_training.h5ad')
 
@@ -316,6 +316,7 @@ def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device =
             kl_rate = 1.0,
             batch_size = 256,
             elbo_version = 'sample',
+            inject_covar_in_latent = inject_covar_in_latent
         )
     else:
         model = NFinVAE(
@@ -340,6 +341,7 @@ def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device =
             output_dim_prior_nn = None,
             hidden_dim_prior = None,
             n_layers_prior = None,
+            inject_covar_in_latent = inject_covar_in_latent
         )
 
     model.train(n_epochs=1, lr_train=0.001, weight_decay=0.0001)
@@ -367,4 +369,4 @@ def debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device =
 if __name__ == '__main__':
     #debug_models(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cuda')
     #debug_saving_loading(model_name = 'NFinVAE', decoder_dist = 'nb', device_from = 'cpu', device_to = 'cpu', only_loading=True)
-    debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cpu')
+    debug_train_classifier(model_name = 'NFinVAE', decoder_dist = 'nb', device = 'cpu', inject_covar_in_latent = True)

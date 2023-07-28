@@ -28,6 +28,7 @@ class FinVAE(inVAE):
         kl_rate: float = 1.0,
         batch_size: int = 256,
         elbo_version: Literal['kl_div', 'sample'] = 'sample',
+        inject_covar_in_latent: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -97,5 +98,6 @@ class FinVAE(inVAE):
             data_dim = self.data_dim,
             inv_covar_dim = self.inv_covar_dim,
             spur_covar_dim = self.spur_covar_dim,
+            inject_covar_in_latent = inject_covar_in_latent
         )
     

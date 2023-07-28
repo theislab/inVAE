@@ -30,6 +30,7 @@ class NFinVAEmodule(nn.Module):
         output_dim_prior_nn: int = None,
         hidden_dim_prior: int = None,
         n_layers_prior: int = None,
+        inject_covar_in_latent: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -57,6 +58,14 @@ class NFinVAEmodule(nn.Module):
         self.batch_norm = batch_norm
         self.reg_sm = reg_sm
         self.normalize_constant = normalize_constant
+
+        self.inject_covar_in_latent = inject_covar_in_latent
+
+        # Dimension for decoder input
+        if inject_covar_in_latent:
+            input_dim_decoder = latent_dim + inv_covar_dim + spur_covar_dim
+        else:
+            input_dim_decoder = latent_dim
 
         # Training HPs
         self.batch_size = batch_size
@@ -91,7 +100,7 @@ class NFinVAEmodule(nn.Module):
         # decoder
         if decoder_dist == 'normal':
             self.decoder_mean = MLP(
-                input_dim=latent_dim, 
+                input_dim=input_dim_decoder, 
                 output_dim=data_dim, 
                 hidden_dim=hidden_dim, 
                 n_layers=n_layers, 
@@ -107,7 +116,7 @@ class NFinVAEmodule(nn.Module):
             #  theta -> parameter shared across cells
 
             self.decoder_raw_mean = MLP(
-                input_dim=latent_dim, 
+                input_dim=input_dim_decoder, 
                 output_dim=hidden_dim, 
                 hidden_dim=hidden_dim, 
                 n_layers=n_layers, 
@@ -239,13 +248,22 @@ class NFinVAEmodule(nn.Module):
         # Return latent mean and var
         return self.latent_mean(h), self.latent_log_var(h)
 
-    def decode(self, z):
+    def decode(self, z, inv_covar=None, spur_covar=None):
+        if (inv_covar is None) and (spur_covar is None):
+            zde = z
+        elif inv_covar is None:
+            zde = torch.cat((z, spur_covar.view(-1, self.spur_covar_dim)), 1)
+        elif spur_covar is None:
+            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim)), 1)
+        else: 
+            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim), spur_covar.view(-1, self.spur_covar_dim)), 1)
+
         if self.decoder_dist == 'normal':
-            decoder_mean = self.decoder_mean(z)
+            decoder_mean = self.decoder_mean(zde)
 
             return decoder_mean
         elif self.decoder_dist == 'nb':
-            decoder_raw_mean = self.decoder_raw_mean(z)
+            decoder_raw_mean = self.decoder_raw_mean(zde)
             decoder_mean = self.decoder_freq(decoder_raw_mean)
             
             return decoder_mean, torch.exp(self.decoder_raw_theta)
@@ -287,14 +305,23 @@ class NFinVAEmodule(nn.Module):
         eps = torch.randn_like(std)
         return mean + eps * std
 
-    def get_log_decoder_density(self, x, z):
+    def get_log_decoder_density(self, x, z, inv_covar=None, spur_covar=None):
+        if (inv_covar is None) and (spur_covar is None):
+            zde = z
+        elif inv_covar is None:
+            zde = torch.cat((z, spur_covar.view(-1, self.spur_covar_dim)), 1)
+        elif spur_covar is None:
+            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim)), 1)
+        else: 
+            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim), spur_covar.view(-1, self.spur_covar_dim)), 1)
+
         if self.decoder_dist == 'normal':
-            decoder_mean = self.decode(z)
+            decoder_mean = self.decode(zde)
 
             log_px_z = log_normal(x, decoder_mean, self.decoder_var)
         elif self.decoder_dist == 'nb':
             # decoder_mean are only the freq
-            decoder_freq, decoder_theta = self.decode(z)
+            decoder_freq, decoder_theta = self.decode(zde)
 
             # multiply with library size to get "correct" means
             library = x.sum(dim=-1, keepdim=True)
@@ -313,13 +340,19 @@ class NFinVAEmodule(nn.Module):
 
         # Decoder
         if self.decoder_dist == 'normal':
-            decoder_mean = self.decode(z)
+            if self.inject_covar_in_latent:
+                decoder_mean = self.decode(z, inv_covar, spur_covar)
+            else:
+                decoder_mean = self.decode(z)
 
             return decoder_mean, latent_mean, latent_logvar, z
         elif self.decoder_dist == 'nb':
-            # decoder_mean are only the freq
-            decoder_freq, decoder_theta = self.decode(z)
-
+            if self.inject_covar_in_latent:
+                decoder_freq, decoder_theta = self.decode(z, inv_covar, spur_covar)
+            else:
+                # decoder_mean are only the freq
+                decoder_freq, decoder_theta = self.decode(z)
+            
             # multiply with library size to get "correct" means
             library = x.sum(dim=-1, keepdim=True)
             decoder_mean = decoder_freq * library
