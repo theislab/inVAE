@@ -29,7 +29,7 @@ inVAE incorporates biological covariates and mechanisms such as disease states, 
 3. Initialize the model, either Factorized or Non-Factorized:<br/>
 
 ```
-from inVAE import FinVAE, NFinVAE
+from inVAE import FinVAE, NFinVAE`
 
 inv_covar_keys = {
     'cont': [],
@@ -74,7 +74,7 @@ model.train_classifier(
 )
 ```
 
-7. Optional - Predict cell types:
+7. Optional - Predict cell types: <br/>
 ```pred_train = model.predict(adata_test, dataset_type='test')```<br/>
 
 ## Dependencies
