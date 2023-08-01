@@ -14,7 +14,7 @@ class FinVAE(inVAE):
         layer: Optional[str] = None,
         inv_covar_keys: Dict[str, List[str]] = None,
         spur_covar_keys: Dict[str, List[str]] = None,
-        latent_dim: int = 10, 
+        latent_dim_inv: int = 9, 
         latent_dim_spur: int = 1,
         n_layers: int = 2, 
         hidden_dim: int = 128,
@@ -25,6 +25,7 @@ class FinVAE(inVAE):
         fix_var_prior: bool = False,
         decoder_dist: Literal['normal', 'nb'] = 'nb',
         batch_norm: bool = True,
+        dropout_rate: float = 0.1,
         kl_rate: float = 1.0,
         batch_size: int = 256,
         elbo_version: Literal['kl_div', 'sample'] = 'sample',
@@ -58,9 +59,13 @@ class FinVAE(inVAE):
         self.device = device
 
         # Latent dimensions
-        self.latent_dim = latent_dim
+        if inject_covar_in_latent:
+            print('Injecting spurious covariates in the latent space! The latent_dim_spur are ignored and set to zero!')
+            latent_dim_spur = 0
+
+        self.latent_dim = latent_dim_inv + latent_dim_spur
         self.latent_dim_spur = latent_dim_spur
-        self.latent_dim_inv = latent_dim - latent_dim_spur
+        self.latent_dim_inv = self.latent_dim - latent_dim_spur
 
         # Set-up data
         
@@ -80,8 +85,12 @@ class FinVAE(inVAE):
         self.spur_covar_dim = sum([self.transformed_data.obs[covar].shape[1] for covar in self.list_spur_covar])
         self.inv_covar_dim = sum([self.transformed_data.obs[covar].shape[1] for covar in self.list_inv_covar])
 
+        if inject_covar_in_latent and self.spur_covar_dim == 0:
+            raise ValueError('The spurious covariates are None, can not inject them into the latent space.' + 
+                             'Check if you specified spurious covariates or set "inject_covar_in_latent" to False!')
+
         self.module = FinVAEmodule(
-            latent_dim = latent_dim, 
+            latent_dim = self.latent_dim, 
             latent_dim_spur = latent_dim_spur,
             n_layers = n_layers, 
             hidden_dim = hidden_dim,
@@ -92,6 +101,7 @@ class FinVAE(inVAE):
             fix_var_prior =  fix_var_prior,
             decoder_dist = decoder_dist,
             batch_norm = batch_norm,
+            dropout_rate=dropout_rate,
             kl_rate = kl_rate,
             batch_size = batch_size,
             elbo_version = elbo_version,

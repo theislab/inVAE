@@ -509,8 +509,7 @@ class inVAE(ABC):
             )
 
             if self.module.inject_covar_in_latent:
-                inv_tmp, spur_tmp = (
-                    inv_covar[ind],
+                spur_tmp = (
                     spur_covar[ind]
                 )
 
@@ -520,7 +519,7 @@ class inVAE(ABC):
                 
             for iteration in range(1, (n_epochs_opt_val+1)):
                 if self.module.inject_covar_in_latent:
-                    log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, latent_dim), inv_tmp, spur_tmp)
+                    log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, latent_dim), None, spur_tmp)
                 else:
                     log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, latent_dim))
 
@@ -568,13 +567,12 @@ class inVAE(ABC):
             )
 
             if self.module.inject_covar_in_latent:
-                inv_tmp, spur_tmp = (
-                    inv_covar[index_val_example].expand(nr_samples, -1),
+                spur_tmp = (
                     spur_covar[index_val_example].expand(nr_samples, -1)
                 )
 
             if self.module.inject_covar_in_latent:
-                log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, self.latent_dim), inv_tmp, spur_tmp)
+                log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, self.latent_dim), None, spur_tmp)
             else:
                 log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, self.latent_dim))
 

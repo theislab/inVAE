@@ -104,8 +104,8 @@ class Normal(Dist):
 
 def log_normal(x, mu=None, v=None, reduce=True):
     """Compute the log-pdf of a normal distribution with diagonal covariance"""
-    if mu.shape[1] != v.shape[0] and mu.shape != v.shape:
-        raise ValueError(f'The mean and variance vector do not have the same shape:\n\tmean: {mu.shape}\tvariance: {v.shape}')
+    #if mu.shape[1] != v.shape[0] and mu.shape != v.shape:
+    #    raise ValueError(f'The mean and variance vector do not have the same shape:\n\tmean: {mu.shape}\tvariance: {v.shape}')
 
     logpdf = -0.5 * (np.log(2 * np.pi) + v.log() + (x - mu).pow(2).div(v))
 

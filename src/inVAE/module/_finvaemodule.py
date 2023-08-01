@@ -22,6 +22,7 @@ class FinVAEmodule(nn.Module):
         fix_var_prior: bool = False,
         decoder_dist: Literal['normal', 'nb'] = 'nb',
         batch_norm: bool = True,
+        dropout_rate: float = 0.0,
         kl_rate: float = 1.0,
         batch_size: int = 256,
         elbo_version: Literal['kl_div', 'sample'] = 'sample',
@@ -49,11 +50,13 @@ class FinVAEmodule(nn.Module):
         self.fix_var_prior = fix_var_prior
         self.decoder_dist = decoder_dist
         self.batch_norm = batch_norm
+        self.dropout_rate = dropout_rate
         self.inject_covar_in_latent = inject_covar_in_latent
 
         # Dimension for decoder input
         if inject_covar_in_latent:
-            input_dim_decoder = latent_dim + inv_covar_dim + spur_covar_dim
+            # As default only inject the covariates of the spurious prior
+            input_dim_decoder = latent_dim + spur_covar_dim
         else:
             input_dim_decoder = latent_dim
 
@@ -78,9 +81,11 @@ class FinVAEmodule(nn.Module):
         self.prior_dist_inv = Normal(device=device)
 
         # One prior for spurious latent space conditioned on spurious covariates
-        self.prior_dist_spur = Normal(device=device)
+        if not inject_covar_in_latent:
+            self.prior_dist_spur = Normal(device=device)
 
-        self.decoder_dist_fct = Normal(device=device)
+        if decoder_dist == 'normal':
+            self.decoder_dist_fct = Normal(device=device)
         
         self.encoder_dist = Normal(device=device)
 
@@ -88,67 +93,145 @@ class FinVAEmodule(nn.Module):
         if self.inv_covar_dim == 0:
             print('The covariates for the invariant prior are None. Defaulting to N(0,1) for that prior.')
 
-        if self.spur_covar_dim == 0:
+        # If we inject covariates in latent do not use spurious prior at all
+        if (self.spur_covar_dim == 0) and (not inject_covar_in_latent):
             print('The covariates for the spurious prior are None. Defaulting to N(0,1) for that prior.')
         
         ## prior_params
         # Logic: both priors are modeled as a multivariate normal distribution with diagonal covariance (i.e. independent components) for this model
         if self.fix_mean_prior and self.fix_var_prior:
             self.prior_mean_inv = torch.zeros(1).to(device)
-            self.prior_mean_spur = torch.zeros(1).to(device)
-
             self.logl_inv = torch.ones(1).to(device)
-            self.logl_spur = torch.ones(1).to(device)
+            
+            if not inject_covar_in_latent:
+                self.logl_spur = torch.ones(1).to(device)
+                self.prior_mean_spur = torch.zeros(1).to(device)
+            else:
+                self.logl_spur = None
+                self.prior_mean_spur = None
         elif self.fix_mean_prior:
             self.prior_mean_inv = torch.zeros(1).to(device)
-            self.prior_mean_spur = torch.zeros(1).to(device)
+
+            if not inject_covar_in_latent:
+                self.prior_mean_spur = torch.zeros(1).to(device)
+            else:
+                self.prior_mean_spur = None
 
             if self.inv_covar_dim != 0:
-                self.logl_inv = MLP(self.inv_covar_dim, self.latent_dim_inv, hidden_dim, n_layers, activation=activation, slope=slope, device=device).to(device)
+                self.logl_inv = MLP(
+                    self.inv_covar_dim, 
+                    self.latent_dim_inv, 
+                    hidden_dim, 
+                    n_layers, 
+                    activation=activation, 
+                    slope=slope, 
+                    device=device,
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate
+                ).to(device)
             else:
                 self.logl_inv = torch.ones(1).to(device)
 
-            if self.spur_covar_dim != 0:
-                self.logl_spur = MLP(self.spur_covar_dim, self.latent_dim_spur, hidden_dim, n_layers, activation=activation, slope=slope, device=device).to(device)
-            else:
+            if self.spur_covar_dim != 0 and not inject_covar_in_latent:
+                self.logl_spur = MLP(
+                    self.spur_covar_dim, 
+                    self.latent_dim_spur, 
+                    hidden_dim, n_layers, 
+                    activation=activation, 
+                    slope=slope, 
+                    device=device, 
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate
+                ).to(device)
+            elif not inject_covar_in_latent:
                 self.logl_spur = torch.ones(1).to(device)
+            else:
+                self.logl_spur = None
         elif self.fix_var_prior:
             if self.inv_covar_dim != 0:
-                self.prior_mean_inv = MLP(self.inv_covar_dim, self.latent_dim_inv, hidden_dim, n_layers, activation=activation, slope=slope, device=device).to(device)
+                self.prior_mean_inv = MLP(
+                    self.inv_covar_dim, 
+                    self.latent_dim_inv, 
+                    hidden_dim, 
+                    n_layers, 
+                    activation=activation, 
+                    slope=slope, 
+                    device=device,
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate
+                ).to(device)
             else:
                 self.prior_mean_inv = torch.zeros(1).to(device)
 
-            if self.spur_covar_dim != 0:
-                self.prior_mean_spur = MLP(self.spur_covar_dim, self.latent_dim_spur, hidden_dim, n_layers, activation=activation, slope=slope, device=device).to(device)
-            else:
+            if self.spur_covar_dim != 0 and not inject_covar_in_latent:
+                self.prior_mean_spur = MLP(
+                    self.spur_covar_dim, 
+                    self.latent_dim_spur, 
+                    hidden_dim, 
+                    n_layers, 
+                    activation=activation, 
+                    slope=slope, 
+                    device=device, 
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate
+                ).to(device)
+            elif not inject_covar_in_latent:
                 self.prior_mean_spur = torch.zeros(1).to(device)
+            else:
+                self.prior_mean_spur = None
 
             self.logl_inv = torch.ones(1).to(device)
-            self.logl_spur = torch.ones(1).to(device)
+            if not inject_covar_in_latent:
+                self.logl_spur = torch.ones(1).to(device)
+            else:
+                self.logl_spur = None
         elif (not self.fix_mean_prior) and (not self.fix_var_prior):
             # use one layer less for shared NN such that the whole prior NN has n_layers (end with act for first part)
             
             ## Invariant latent prior
             if self.inv_covar_dim != 0:
                 self.prior_nn_inv = MLP(
-                    self.inv_covar_dim, hidden_dim, hidden_dim, n_layers-1, activation=activation, slope=slope, device=device, end_with_act=True
+                    self.inv_covar_dim, 
+                    hidden_dim, 
+                    hidden_dim, 
+                    n_layers-1, 
+                    activation=activation, 
+                    slope=slope, 
+                    device=device, 
+                    end_with_act=True, 
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate
                 ).to(device)
 
                 self.prior_mean_inv = nn.Linear(hidden_dim, self.latent_dim_inv, device=device)
                 self.logl_inv = nn.Linear(hidden_dim, self.latent_dim_inv, device=device)
             else:
                 self.prior_mean_inv = torch.zeros(1).to(device)
+                self.logl_inv = torch.ones(1).to(device)
 
             ## Noise latent prior
-            if self.spur_covar_dim != 0:
+            if self.spur_covar_dim != 0 and not inject_covar_in_latent:
                 self.prior_nn_spur = MLP(
-                    self.spur_covar_dim, hidden_dim, hidden_dim, n_layers-1, activation=activation, slope=slope, device=device, end_with_act=True
+                    self.spur_covar_dim, 
+                    hidden_dim, 
+                    hidden_dim, 
+                    n_layers-1, 
+                    activation=activation, 
+                    slope=slope, 
+                    device=device, 
+                    end_with_act=True, 
+                    batch_norm=batch_norm,
+                    dropout_rate=dropout_rate
                 ).to(device)
 
                 self.prior_mean_spur = nn.Linear(hidden_dim, self.latent_dim_spur, device=device)
                 self.logl_spur = nn.Linear(hidden_dim, self.latent_dim_spur, device=device)
-            else:
+            elif not inject_covar_in_latent:
                 self.prior_mean_spur = torch.zeros(1).to(device)
+                self.logl_spur = torch.ones(1).to(device)
+            else:
+                self.prior_mean_spur = None
+                self.logl_spur = None
 
         # decoder params
         if self.decoder_dist == 'normal':
@@ -160,7 +243,8 @@ class FinVAEmodule(nn.Module):
                 activation=activation,
                 slope=slope,
                 device=device,
-                batch_norm=batch_norm
+                batch_norm=batch_norm,
+                dropout_rate=dropout_rate
             ).to(device)
             
             self.decoder_var = .01 * torch.ones(1).to(device)
@@ -176,7 +260,8 @@ class FinVAEmodule(nn.Module):
                 n_layers=n_layers, 
                 activation=activation, 
                 device=device,
-                batch_norm=self.batch_norm
+                batch_norm=self.batch_norm,
+                dropout_rate=dropout_rate
             ).to(self.device)
 
             self.decoder_freq  = nn.Sequential(
@@ -199,6 +284,7 @@ class FinVAEmodule(nn.Module):
             slope=slope,
             device=device,
             batch_norm=self.batch_norm,
+            dropout_rate=dropout_rate,
             end_with_act=True
         ).to(device)
 
@@ -243,12 +329,14 @@ class FinVAEmodule(nn.Module):
     def decode(self, z, inv_covar=None, spur_covar=None):
         if (inv_covar is None) and (spur_covar is None):
             zde = z
-        elif inv_covar is None:
+        elif spur_covar is not None:
             zde = torch.cat((z, spur_covar.view(-1, self.spur_covar_dim)), 1)
-        elif spur_covar is None:
-            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim)), 1)
-        else: 
-            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim), spur_covar.view(-1, self.spur_covar_dim)), 1)
+        
+        # Disable other options for now -> Use only covariates of spurious prior, when "inject_covar_in_latent" is True
+        #elif spur_covar is None:
+        #    zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim)), 1)
+        #else: 
+        #    zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim), spur_covar.view(-1, self.spur_covar_dim)), 1)
 
         if self.decoder_dist == 'normal':
             f = self.f(zde)
@@ -264,12 +352,23 @@ class FinVAEmodule(nn.Module):
             return (self.prior_mean_inv, self.prior_mean_spur), (self.logl_inv, self.logl_spur)
         elif self.fix_mean_prior:
             logl_inv = (self.logl_inv(inv_covar).exp() + 1e-4) if (inv_covar is not None) else self.logl_inv
-            logl_spur = (self.logl_spur(spur_covar).exp() + 1e-4)  if (spur_covar is not None) else self.logl_spur
+
+            if not self.inject_covar_in_latent:
+                if (spur_covar is not None):
+                    logl_spur = (self.logl_spur(spur_covar).exp() + 1e-4)   
+                else:
+                    logl_spur = self.logl_spur
+            else:
+                logl_spur = None
 
             return (self.prior_mean_inv, self.prior_mean_spur), (logl_inv, logl_spur)
         elif self.fix_var_prior:
             prior_mean_inv = self.prior_mean_inv(inv_covar) if (inv_covar is not None) else self.prior_mean_inv
-            prior_mean_spur = self.prior_mean_spur(spur_covar) if (spur_covar is not None) else self.prior_mean_spur
+
+            if (spur_covar is not None) and (not self.inject_covar_in_latent):
+                prior_mean_spur = self.prior_mean_spur(spur_covar) 
+            else:
+                prior_mean_spur = self.prior_mean_spur
 
             return (prior_mean_inv, prior_mean_spur), (self.logl_inv, self.logl_spur)
         elif (not self.fix_mean_prior) and (not self.fix_var_prior):
@@ -282,7 +381,7 @@ class FinVAEmodule(nn.Module):
                 prior_mean_inv = self.prior_mean_inv
                 logl_inv = self.logl_inv
 
-            if spur_covar is not None:
+            if (spur_covar is not None) and (not self.inject_covar_in_latent):
                 prior_shared_spur = self.prior_nn_spur(spur_covar)
 
                 prior_mean_spur = self.prior_mean_spur(prior_shared_spur)
@@ -299,14 +398,10 @@ class FinVAEmodule(nn.Module):
         return z
     
     def get_log_decoder_density(self, x, z, inv_covar=None, spur_covar=None):
-        if (inv_covar is None) and (spur_covar is None):
+        if spur_covar is None:
             zde = z
-        elif inv_covar is None:
+        else:
             zde = torch.cat((z, spur_covar.view(-1, self.spur_covar_dim)), 1)
-        elif spur_covar is None:
-            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim)), 1)
-        else: 
-            zde = torch.cat((z, inv_covar.view(-1, self.inv_covar_dim), spur_covar.view(-1, self.spur_covar_dim)), 1)
 
         if self.decoder_dist == 'normal':
             decoder_params = self.decode(zde)
@@ -364,7 +459,10 @@ class FinVAEmodule(nn.Module):
             log_pzi_d = self.prior_dist_inv.log_pdf(z[:, :self.latent_dim_inv], prior_params_mean[0], prior_params_var[0])
             
             # Spurious latent space
-            log_pzs_e = self.prior_dist_spur.log_pdf(z[:, self.latent_dim_inv:], prior_params_mean[1], prior_params_var[1])
+            if not self.inject_covar_in_latent:
+                log_pzs_e = self.prior_dist_spur.log_pdf(z[:, self.latent_dim_inv:], prior_params_mean[1], prior_params_var[1])
+            else:
+                log_pzs_e = 0
 
             return (log_px_z + self.beta * (log_pzi_d + log_pzs_e - log_qz_xde)).mean(), z
         elif self.elbo_version == 'kl_div':
@@ -374,9 +472,29 @@ class FinVAEmodule(nn.Module):
             # Encoder distribution
             qz_xde = dist.Normal(g, v.sqrt())
 
+            #raise ValueError('Debug elbo version kl_div...')
+
             # Prior distribution (independent components -> diagonal cov)
-            full_prior_mean = torch.cat(prior_params_mean, dim=1) if not self.fix_mean_prior else prior_params_mean[0]
-            full_prior_var = torch.cat(prior_params_var, dim=1) if not self.fix_var_prior else prior_params_var[0]
+            # Ugly fix for size match; e.g. inv var size [128, 9] and spur var size [1]
+            prior_params_mean_list = [prior_params_mean[0], prior_params_mean[1]]
+            prior_params_var_list = [prior_params_var[0], prior_params_var[1]]
+
+            for i, tens in enumerate(prior_params_mean_list):
+                if tens is not None and tens.shape[0] == 1:
+                    tmp_dim = self.latent_dim_inv if i == 0 else self.latent_dim_spur
+                    prior_params_mean_list[i] = tens.expand(z.shape[0], tmp_dim)
+
+            prior_params_mean_list = [p for p in prior_params_mean_list if p is not None]
+            
+            for i, tens in enumerate(prior_params_var_list):
+                if tens is not None and tens.shape[0] == 1:
+                    tmp_dim = self.latent_dim_inv if i == 0 else self.latent_dim_spur
+                    prior_params_var_list[i] = tens.expand(z.shape[0], tmp_dim)
+
+            prior_params_var_list = [p for p in prior_params_var_list if p is not None]
+
+            full_prior_mean = torch.cat(prior_params_mean_list, dim=1) if not self.fix_mean_prior else prior_params_mean[0]
+            full_prior_var = torch.cat(prior_params_var_list, dim=1) if not self.fix_var_prior else prior_params_var[0]
 
             pz_de = dist.Normal(full_prior_mean, full_prior_var.sqrt())
 

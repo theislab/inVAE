@@ -7,8 +7,19 @@ from ._helper_functions import weights_init
 
 class MLP(nn.Module):
 
-    def __init__(self, input_dim, output_dim, hidden_dim, n_layers, activation='none', 
-                 slope=0.1, device='cpu', end_with_act = False, batch_norm = False):
+    def __init__(
+        self, 
+        input_dim, 
+        output_dim, 
+        hidden_dim, 
+        n_layers, 
+        activation='none', 
+        slope=0.1, 
+        device='cpu', 
+        end_with_act = False, 
+        batch_norm = False,
+        dropout_rate = 0
+    ):
 
         super().__init__()
 
@@ -18,6 +29,7 @@ class MLP(nn.Module):
         self.device = device
         self.end_with_act = end_with_act
         self.batch_norm = batch_norm
+        self.dropout_rate = dropout_rate
 
         if isinstance(hidden_dim, Number):
             self.hidden_dim = [hidden_dim] * (self.n_layers - 1)
@@ -55,24 +67,38 @@ class MLP(nn.Module):
             _fc_list = [nn.Linear(self.input_dim, self.output_dim)]
             if self.batch_norm:
                 _bn_list = [nn.BatchNorm1d(self.output_dim, momentum=0.01, eps=0.001)]
+
+            if self.dropout_rate > 0:
+                _dr_list = [nn.Dropout(p = self.dropout_rate)]
         else:
             _fc_list = [nn.Linear(self.input_dim, self.hidden_dim[0])]
             if self.batch_norm:
                 _bn_list = [nn.BatchNorm1d(self.hidden_dim[0], momentum=0.01, eps=0.001)]
+            
+            if self.dropout_rate > 0:
+                _dr_list = [nn.Dropout(p = self.dropout_rate)]
 
             for i in range(1, self.n_layers - 1):
                 _fc_list.append(nn.Linear(self.hidden_dim[i - 1], self.hidden_dim[i]))
                 if self.batch_norm:
                     _bn_list.append(nn.BatchNorm1d(self.hidden_dim[i], momentum=0.01, eps=0.001))
+                if self.dropout_rate > 0:
+                    _dr_list.append(nn.Dropout(p = self.dropout_rate))
 
             _fc_list.append(nn.Linear(self.hidden_dim[self.n_layers - 2], self.output_dim))
             if self.batch_norm:
                 _bn_list.append(nn.BatchNorm1d(self.output_dim, momentum=0.01, eps=0.001))
+            if self.dropout_rate > 0:
+                _dr_list.append(nn.Dropout(p = self.dropout_rate))
+            
 
         self.fc = nn.ModuleList(_fc_list)
 
         if self.batch_norm:
             self.bn = nn.ModuleList(_bn_list)
+
+        if self.dropout_rate > 0:
+            self.dr = nn.ModuleList(_dr_list)
 
     @staticmethod
     def xtanh(x, alpha=.1):
@@ -83,18 +109,27 @@ class MLP(nn.Module):
         h = x
         for c in range(self.n_layers):
             if c == self.n_layers - 1:
+                h = self.fc[c](h)
+
                 if self.batch_norm:
-                    h = self.bn[c](self.fc[c](h))
-                else:
-                    h = self.fc[c](h)
+                    h = self.bn[c](h)
 
                 if self.end_with_act:
                     h = self._act_f[c](h)
+
+                if self.dropout_rate > 0:
+                    h = self.dr[c](h)
             else:
+                h = self.fc[c](h)
+
                 if self.batch_norm:
-                    h = self._act_f[c](self.bn[c](self.fc[c](h)))
-                else:
-                    h = self._act_f[c](self.fc[c](h))
+                    h = self.bn[c](h)
+
+                h = self._act_f[c](h)
+
+                if self.dropout_rate > 0:
+                    h = self.dr[c](h)
+
         return h
     
 class ModularMultiClassifier(nn.Module):
