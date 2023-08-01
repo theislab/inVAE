@@ -27,9 +27,10 @@ inVAE incorporates biological covariates and mechanisms such as disease states, 
 ```adata = sc.read(path/to/data)```<br/>
 2. Optional - Split the data into train, val, test (in supervised case for training prediction)<br/>
 3. Initialize the model, either Factorized or Non-Factorized:<br/>
-```from inVAE import FinVAE, NFinVAE```<br/>
 
 ```
+from inVAE import FinVAE, NFinVAE
+
 inv_covar_keys = {
     'cont': [],
     'cat': ['cell_type', 'donor'] #set to the keys in the adata
