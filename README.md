@@ -25,30 +25,31 @@ inVAE incorporates biological covariates and mechanisms such as disease states, 
 
 1. Load the data: <br/>
 ```adata = sc.read(path/to/data)```<br/>
-2. Optional - Split the data into train, val, test (in supervised case for training prediction):<br/>
+2. Optional - Split the data into train, val, test (in supervised case for training prediction)<br/>
 3. Initialize the model, either Factorized or Non-Factorized:<br/>
 ```from inVAE import FinVAE, NFinVAE```<br/>
+
 ```
 inv_covar_keys = {
     'cont': [],
     'cat': ['cell_type', 'donor'] #set to the keys in the adata
 }
-```<br/>
-```
+
 spur_covar_keys = {
     'cont': [],
     'cat': ['site'] #set to the keys in the adata
 }
-```<br/>
-```
+
 model = FinVAE(
     adata = adata_train,
     layer = 'counts', # The layer where the raw counts are stored in adata (None for adata.X: default)
     inv_covar_keys = inv_covar_keys,
     spur_covar_keys = spur_covar_keys
 )
-``` <br/>
+```
+
 or <br/>
+
 ``` 
 model = NFinVAE(
     adata = adata_train,
@@ -56,19 +57,22 @@ model = NFinVAE(
     inv_covar_keys = inv_covar_keys,
     spur_covar_keys = spur_covar_keys
 )
-``` <br/>
+```
+
 4. Train the generative model: <br/>
 ```model.train(n_epochs=1, lr_train=0.001, weight_decay=0.0001)```<br/>
 5. Get the latent representation: <br/>
 ```latent = model.get_latent_representation(adata)```<br/>
 6. Optional - Train the classifer (for cell types):
+
 ```
 model.train_classifier(
     adata_val,
     batch_key = 'batch',
     label_key = 'cell_type',
 )
-```<br/>
+```
+
 7. Optional - Predict cell types:
 ```pred_train = model.predict(adata_test, dataset_type='test')```<br/>
 
