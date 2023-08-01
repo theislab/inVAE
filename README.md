@@ -1,7 +1,7 @@
 # inVAE
 
 
-![Workflow of AutoGeneS](./images/inVAE_black.pdf)
+![inVAE is a conditionally invariant variational autoencoder that identifies both spurious (distractors) and invariant features.](./images/inVAE_black.png)
 
 
 ## Installation
@@ -11,7 +11,7 @@
 
 2. Development Version (latest version on github) <br/>
 ```git clone https://github.com/theislab/inVAE```<br/>
-```pip install dist/XXX.whl```<br/>
+```pip install .```<br/>
 
 ## Example
 
