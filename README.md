@@ -4,7 +4,7 @@ inVAE is a conditionally invariant variational autoencoder that identifies both 
 It leverages domain variability to learn conditionally invariant representations. We show that inVAE captures biological variations in single-cell datasets obtained from diverse conditions and labs. 
 inVAE incorporates biological covariates and mechanisms such as disease states, to learn an invariant data representation. This improves cell classification accuracy significantly. 
 
-![logo]<img src="./images/inVAE_black.png" width=50>
+<img src="./images/inVAE_black.png" width=200>
 
 
 ## Installation
