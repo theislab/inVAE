@@ -9,7 +9,7 @@ name = "inVAE"
 dynamic = ["version"]
 authors = [
   { name="Ferdinand Kapl", email="f.kapl@web.de" },
-  { name="Hananeh Aliee", email="hana.aliee@gmail.com" }
+  { name="Hananeh Aliee", email="ha10@sanger.ac.uk" }
 ]
 description = "Package for invariant VAE models on single-cell data"
 readme = "README.md"
