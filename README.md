@@ -1,7 +1,10 @@
 # inVAE
 
+inVAE is a conditionally invariant variational autoencoder that identifies both spurious (distractors) and invariant features. 
+It leverages domain variability to learn conditionally invariant representations. We show that inVAE captures biological variations in single-cell datasets obtained from diverse conditions and labs. 
+inVAE incorporates biological covariates and mechanisms such as disease states, to learn an invariant data representation. This improves cell classification accuracy significantly. 
 
-![inVAE is a conditionally invariant variational autoencoder that identifies both spurious (distractors) and invariant features.](./images/inVAE_black.png)
+![](./images/inVAE_black.png | width=70)
 
 
 ## Installation
@@ -15,7 +18,7 @@
 
 ## Example
 
-[Human Lung Cell Atlas](https://github.com/theislab/inVAE/blob/master/notebooks/inVAE_LungAtlas.ipynb)
+[Integration of Human Lung Cell Atlas using both healthy and disease samples](https://github.com/theislab/inVAE/blob/master/notebooks/inVAE_LungAtlas.ipynb)
 
 
 ## Dependencies
