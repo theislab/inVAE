@@ -53,7 +53,7 @@ results_dict = {
 
 # Simulate data
 adata = synthetic_data(
-    n_cells_per_comb = 10,
+    n_cells_per_comb = 100,
     n_cell_types = 2,
     n_conditions = 3,
     n_latent_inv = latent_dim_inv,
@@ -133,7 +133,7 @@ for i in range(args.N_RUNS):
         device=args.device
     )
 
-    model.train(n_epochs = 1000, lr_train=0.001, weight_decay=0.0001)
+    model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
 
     latent = model.get_latent_representation(latent_type='full')
 
