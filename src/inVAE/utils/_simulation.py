@@ -41,7 +41,7 @@ def mcc(x, y, method='pearson'):
     return score
 
 # code adapted from lachapelle et al. (their code assumes x_dim = z_dim = h_dim)
-def _prepare_params_decoder(x_dim, z_dim, h_dim=40, neg_slope=0.2):
+def prepare_params_decoder(x_dim, z_dim, h_dim=40, neg_slope=0.2):
     if z_dim > h_dim or h_dim > x_dim:
         raise ValueError("CHECK dim <= h_dim <= x_dim")
     # sampling NN weight matrices
@@ -66,7 +66,7 @@ def _prepare_params_decoder(x_dim, z_dim, h_dim=40, neg_slope=0.2):
     return {"W1": W1, "W2": W2, "W3": W3, "W4": W4}
 
 
-def _decoder(z, params, neg_slope=0.2):
+def decoder(z, params, neg_slope=0.2):
     W1, W2, W3, W4 = params["W1"], params["W2"], params["W3"], params["W4"]
     # note that this decoder is almost surely invertible WHEN dim <= h_dim <= x_dim
     # since Wx is injective
@@ -83,6 +83,82 @@ def _decoder(z, params, neg_slope=0.2):
     e_x = np.exp(logits - np.max(logits))
     return e_x / e_x.sum(axis=0)
 
+def synthetic_data(
+    n_cells_per_comb: int = 100,
+    #n_batches: int = 3,
+    n_cell_types: int = 2,
+    n_conditions: int = 3,
+    n_latent_inv: int = 3,
+    n_latent_spur: int = 2,
+    n_genes: int = 100,
+    shift_cell_type: List[float] = [-20, 20],
+    shift_conditions: List[float] = [0, 5, 5.2],
+    mean_batch: List[float] = [0],
+    var_batch: List[float] = [0, 1, 2, 3, 4, 5],
+    verbose: bool = True
+):
+    if var_batch is None:
+        var_batch = range(n_conditions * n_cell_types)
+    n_latents = n_latent_inv + n_latent_spur
+
+    z = np.zeros((n_conditions * n_cell_types * n_cells_per_comb, n_latents))
+
+    obs = np.zeros((n_conditions * n_cell_types * n_cells_per_comb, 3))
+
+    obs_df = pd.DataFrame(obs, columns=['batch','cell_type','disease'])
+
+    tmp = 0
+
+    var_tmp = np.eye(n_latents)
+
+    for cond in range(n_conditions):
+        #generate n_cell_per_comb cells for each cell type:
+        for cell in range(n_cell_types):
+            inv = [np.array(shift_cell_type[cell])+np.array(shift_conditions[cond])]*n_latent_inv
+            spur = mean_batch*n_latent_spur
+            var_tmp[range(n_latent_inv,n_latents), range(n_latent_inv,n_latents)] = 1 + var_batch[tmp]
+
+            if verbose:
+                print(inv+spur)
+                print(var_tmp)
+                print()
+
+            z[
+                (tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb) 
+            ] = np.random.multivariate_normal(
+                inv+spur, var_tmp, size=(n_cells_per_comb)
+            )
+
+            obs_df.iloc[(tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb),0] = tmp
+            obs_df.iloc[(tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb),1] = cell
+            obs_df.iloc[(tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb),2] = cond
+
+            tmp+=1
+
+    # finally, get the decoder, and get gene expression x for the cells
+    params = prepare_params_decoder(n_genes, n_latents)
+    x = decoder(z, params=params)
+    x = np.random.poisson(lam=1e6 * x)
+
+    # shuffle dataset
+    ind = np.random.permutation(np.arange(obs_df.shape[0]))
+
+    # dump into anndata
+    adata = AnnData(x, dtype=np.float32)
+    adata.obs = obs_df
+    adata.obsm["groundtruth_latent"] = z
+    #adata.uns["prior_mean"] = action_specific_prior_mean
+    adata = adata[ind]
+
+    for key in adata.obs:
+        adata.obs[key] = pd.Categorical(adata.obs[key])
+        adata.obs[key] = adata.obs[key].astype(str)
+
+    adata.obsm['groundtruth_latent_inv'] = adata.obsm['groundtruth_latent'][:,:n_latent_inv]
+    adata.obsm['groundtruth_latent_spur'] = adata.obsm['groundtruth_latent'][:,n_latent_inv:]
+    adata.layers['raw'] = adata.X.copy()
+
+    return adata
 
 def sparse_shift(
     n_cells_per_comb: int = 500,
@@ -140,8 +216,8 @@ def sparse_shift(
             )
 
     # finally, get the decoder, and get gene expression x for the cells
-    params = _prepare_params_decoder(n_genes, n_latent)
-    x = _decoder(z, params=params)
+    params = prepare_params_decoder(n_genes, n_latent)
+    x = decoder(z, params=params)
     x = np.random.poisson(lam=1e6 * x)
     # put labels in these
     cell_types = np.concatenate(n_batches * [np.concatenate([n_cells_per_comb * [c[0]] for c in combs])]) 
