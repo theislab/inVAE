@@ -95,7 +95,8 @@ def synthetic_data(
     shift_conditions: List[float] = [0, 5, 5.2],
     mean_batch: List[float] = [0],
     var_batch: List[float] = [0, 1, 2, 3, 4, 5],
-    verbose: bool = True
+    verbose: bool = True,
+    correlate: bool = True
 ):
     if var_batch is None:
         var_batch = range(n_conditions * n_cell_types)
@@ -110,14 +111,18 @@ def synthetic_data(
 
     tmp = 0
 
-    var_tmp = np.eye(n_latents)
+    if correlate:
+        var_tmp = np.eye(n_latents) + np.eye(n_latents, k=1) + np.eye(n_latents, k=-1)
+        var_tmp[n_latent_inv:, n_latent_inv:] = 0
+        var_tmp[range(n_latent_inv,n_latents), range(n_latent_inv,n_latents)] = 1# + var_batch[tmp]
+    else:
+        var_tmp = np.eye(n_latents)
 
     for cond in range(n_conditions):
         #generate n_cell_per_comb cells for each cell type:
         for cell in range(n_cell_types):
             inv = [np.array(shift_cell_type[cell])+np.array(shift_conditions[cond])]*n_latent_inv
             spur = mean_batch*n_latent_spur
-            var_tmp[range(n_latent_inv,n_latents), range(n_latent_inv,n_latents)] = 1# + var_batch[tmp]
 
             if verbose:
                 print(inv+spur)

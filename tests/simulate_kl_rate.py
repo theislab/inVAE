@@ -26,8 +26,10 @@ parser.add_argument('--latent_dim', type=int, default=10)
 parser.add_argument('--latent_dim_inv', type=int, default=8)
 parser.add_argument('--n_genes', type=int, default=100)
 parser.add_argument('--n_epochs', type=int, default=2000)
-#parser.add_argument('--N_RUNS', type=int, default=1)
+parser.add_argument('--N_RUNS', type=int, default=1)
 parser.add_argument('--device', default='cpu')
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--n_samples', type=int, default=100)
 
 args = parser.parse_args()
 
@@ -47,7 +49,7 @@ for beta in beta_list:
 
 # Simulate data
 adata = synthetic_data(
-    n_cells_per_comb = 100,
+    n_cells_per_comb = args.n_samples,
     n_cell_types = 2,
     n_conditions = 3,
     n_latent_inv = latent_dim_inv,
@@ -74,31 +76,33 @@ spur_covar_keys = {
 }
 
 for beta in beta_list:
-    # FinVAE
-    model = FinVAE(
-        adata = adata,
-        layer = 'raw', # The layer where the raw counts are stored in adata (None for adata.X: default)
-        latent_dim_inv=latent_dim_inv,
-        latent_dim_spur=latent_dim_spur,
-        hidden_dim = 128,
-        inv_covar_keys = inv_covar_keys,
-        spur_covar_keys = spur_covar_keys,
-        kl_rate=beta,
-        elbo_version='sample',
-        device=args.device,
-    )
+    for i in range(args.N_RUNS):
+        # FinVAE
+        model = FinVAE(
+            adata = adata,
+            layer = 'raw', # The layer where the raw counts are stored in adata (None for adata.X: default)
+            latent_dim_inv=latent_dim_inv,
+            latent_dim_spur=latent_dim_spur,
+            hidden_dim = 128,
+            inv_covar_keys = inv_covar_keys,
+            spur_covar_keys = spur_covar_keys,
+            kl_rate=beta,
+            elbo_version='sample',
+            device=args.device,
+            batch_size=args.batch_size
+        )
 
-    model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
+        model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
 
-    latent = model.get_latent_representation(latent_type='full')
+        latent = model.get_latent_representation(latent_type='full')
 
-    #adata.obsm[f'X_FinVAE_full_{i}'] = latent
+        #adata.obsm[f'X_FinVAE_full_{i}'] = latent
 
-    results_dict[f'mcc_pear_f_invae_{beta}'].append(mcc(gt_latent, latent, method='pearson'))
+        results_dict[f'mcc_pear_f_invae_{beta}'].append(mcc(gt_latent, latent, method='pearson'))
 
-    results_dict[f'mcc_spear_f_invae_{beta}'].append(mcc(gt_latent, latent, method='spearman'))
+        results_dict[f'mcc_spear_f_invae_{beta}'].append(mcc(gt_latent, latent, method='spearman'))
 
-    results_dict[f'r2_f_invae_{beta}'].append(get_linear_score(gt_latent, latent))
+        results_dict[f'r2_f_invae_{beta}'].append(get_linear_score(gt_latent, latent))
 
 for key, score_list in results_dict.items():
     print(f'{key}: {np.mean(score_list):.3f} +- {np.std(score_list):.3f}')

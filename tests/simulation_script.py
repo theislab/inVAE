@@ -28,6 +28,11 @@ parser.add_argument('--n_genes', type=int, default=100)
 
 parser.add_argument('--N_RUNS', type=int, default=1)
 parser.add_argument('--device', default='cpu')
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--n_samples', type=int, default=100)
+parser.add_argument('--beta', default=10)
+
+parser.add_argument('--correlate_latents', action='store_true')
 
 args = parser.parse_args()
 
@@ -63,7 +68,8 @@ adata = synthetic_data(
     shift_conditions = [0, 5, 5],
     mean_batch = [1],
     var_batch = None,
-    verbose = False
+    verbose = False,
+    correlate = args.correlate_latents
 )
 
 gt_latent = adata.obsm['groundtruth_latent']
@@ -128,9 +134,10 @@ for i in range(args.N_RUNS):
         hidden_dim = 128,
         inv_covar_keys = inv_covar_keys,
         spur_covar_keys = spur_covar_keys,
-        kl_rate = 1,
+        kl_rate = args.beta,
         elbo_version='sample',
-        device=args.device
+        device=args.device,
+        batch_size=args.batch_size
     )
 
     model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
@@ -154,7 +161,8 @@ for i in range(args.N_RUNS):
         hidden_dim = 128,
         inv_covar_keys = inv_covar_keys,
         spur_covar_keys = spur_covar_keys,
-        device=args.device
+        device=args.device,
+        batch_size=args.batch_size
     )
 
     model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
