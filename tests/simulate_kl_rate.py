@@ -36,7 +36,7 @@ latent_dim_inv = args.latent_dim_inv
 latent_dim_spur = latent_dim - latent_dim_inv
 
 # dict for results
-beta_list = [0.5, 1, 2, 10]
+beta_list = [0.5, 1., 2., 10.]
 
 results_dict = {}
 
@@ -83,10 +83,9 @@ for beta in beta_list:
         hidden_dim = 128,
         inv_covar_keys = inv_covar_keys,
         spur_covar_keys = spur_covar_keys,
-        kl_rate = 1,
+        kl_rate=beta,
         elbo_version='sample',
         device=args.device,
-        kl_rate=beta,
     )
 
     model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
