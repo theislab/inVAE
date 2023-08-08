@@ -60,10 +60,10 @@ adata = synthetic_data(
     n_latent_spur = latent_dim_spur,
     n_genes = args.n_genes,
     shift_cell_type = [-20, 20],
-    shift_conditions = [0, 5, 5.2],
-    mean_batch = [0],
+    shift_conditions = [0, 5, 5],
+    mean_batch = [1],
     var_batch = None,
-    verbose = True
+    verbose = False
 )
 
 gt_latent = adata.obsm['groundtruth_latent']
