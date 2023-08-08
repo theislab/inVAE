@@ -41,9 +41,9 @@ beta_list = [0.5, 1., 2., 10.]
 results_dict = {}
 
 for beta in beta_list:
-    results_dict[f'mcc_pear_f_invae_{beta}'] = {}
-    results_dict[f'mcc_spear_f_invae_{beta}'] = {}
-    results_dict[f'r2_f_invae_{beta}'] = {}
+    results_dict[f'mcc_pear_f_invae_{beta}'] = []
+    results_dict[f'mcc_spear_f_invae_{beta}'] = []
+    results_dict[f'r2_f_invae_{beta}'] = []
 
 # Simulate data
 adata = synthetic_data(
