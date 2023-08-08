@@ -99,6 +99,7 @@ def synthetic_data(
 ):
     if var_batch is None:
         var_batch = range(n_conditions * n_cell_types)
+        
     n_latents = n_latent_inv + n_latent_spur
 
     z = np.zeros((n_conditions * n_cell_types * n_cells_per_comb, n_latents))
@@ -116,7 +117,7 @@ def synthetic_data(
         for cell in range(n_cell_types):
             inv = [np.array(shift_cell_type[cell])+np.array(shift_conditions[cond])]*n_latent_inv
             spur = mean_batch*n_latent_spur
-            var_tmp[range(n_latent_inv,n_latents), range(n_latent_inv,n_latents)] = 1 + var_batch[tmp]
+            var_tmp[range(n_latent_inv,n_latents), range(n_latent_inv,n_latents)] = 1# + var_batch[tmp]
 
             if verbose:
                 print(inv+spur)
@@ -129,7 +130,7 @@ def synthetic_data(
                 inv+spur, var_tmp, size=(n_cells_per_comb)
             )
 
-            obs_df.iloc[(tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb),0] = tmp
+            obs_df.iloc[(tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb),0] = 0
             obs_df.iloc[(tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb),1] = cell
             obs_df.iloc[(tmp * n_cells_per_comb) : ((tmp+1) * n_cells_per_comb),2] = cond
 
