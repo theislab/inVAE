@@ -30,6 +30,7 @@ parser.add_argument('--N_RUNS', type=int, default=1)
 parser.add_argument('--device', default='cpu')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--n_samples', type=int, default=100)
+parser.add_argument('--correlate_latents', action='store_true')
 
 args = parser.parse_args()
 
@@ -38,7 +39,7 @@ latent_dim_inv = args.latent_dim_inv
 latent_dim_spur = latent_dim - latent_dim_inv
 
 # dict for results
-beta_list = [0.5, 1., 2., 10.]
+beta_list = [0.5, 1., 2., 4., 10.]
 
 results_dict = {}
 
@@ -59,7 +60,8 @@ adata = synthetic_data(
     shift_conditions = [0, 5, 5],
     mean_batch = [1],
     var_batch = None,
-    verbose = False
+    verbose = False,
+    correlate = args.correlate_latents
 )
 
 gt_latent = adata.obsm['groundtruth_latent']
