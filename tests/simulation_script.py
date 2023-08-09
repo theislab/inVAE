@@ -58,7 +58,7 @@ results_dict = {
 
 # Simulate data
 adata = synthetic_data(
-    n_cells_per_comb = 100,
+    n_cells_per_comb = args.n_samples,
     n_cell_types = 2,
     n_conditions = 3,
     n_latent_inv = latent_dim_inv,
