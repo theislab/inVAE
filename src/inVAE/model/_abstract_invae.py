@@ -59,9 +59,11 @@ class inVAE(ABC):
     def save(
         self,
         save_dir: str,
-    ):
-        print('Saving the pytorch module...')
-        print('To load the model later you need to save the hyperparameters in a separate file/dictionary.')
+        verbose: bool = True,
+    ):  
+        if verbose:
+            print('Saving the pytorch module...')
+            print('To load the model later you need to save the hyperparameters in a separate file/dictionary.')
 
         torch.save(self.module.state_dict(), save_dir)
 
@@ -402,6 +404,8 @@ class inVAE(ABC):
         log_dir: str = None,
         log_freq: int = 25, # in iterations
         print_every_n_epochs: int = None,
+        checkpoint_dir: str = None,
+        n_checkpoints: int = 0,
     ):
         if n_epochs is None:
             n_epochs = 500
@@ -479,6 +483,9 @@ class inVAE(ABC):
             if np.isnan(loss_epoch):
                 print(f'Loss is nan at epoch {int(iteration/len(self.data_loader))}/{n_epochs}, stopping training!')
                 break
+
+            if (n_checkpoints > 0) and (iteration % int(max_iter/n_checkpoints) == 0):
+                self.save(f'{checkpoint_dir}/checkpoint_epoch_{int(iteration/len(self.data_loader))}.pt')
             
         self.module.eval()
         print('Training done!')

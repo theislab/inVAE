@@ -25,7 +25,7 @@ inVAE incorporates biological covariates and mechanisms such as disease states, 
 
 1. Load the data: <br/>
 ```adata = sc.read(path/to/data)```<br/>
-2. Optional - Split the data into train, val, test (in supervised case for training prediction)<br/>
+2. Optional - Split the data into train, val, test (in supervised case for training classifier as well)<br/>
 3. Initialize the model, either Factorized or Non-Factorized:<br/>
 
 ```
@@ -61,7 +61,7 @@ model = NFinVAE(
 ```
 
 4. Train the generative model: <br/>
-```model.train(n_epochs=1, lr_train=0.001, weight_decay=0.0001)```<br/>
+```model.train(n_epochs=500, lr_train=0.001, weight_decay=0.0001)```<br/>
 5. Get the latent representation: <br/>
 ```latent = model.get_latent_representation(adata)```<br/>
 6. Optional - Train the classifer (for cell types):
@@ -75,7 +75,13 @@ model.train_classifier(
 ```
 
 7. Optional - Predict cell types: <br/>
-```pred_train = model.predict(adata_test, dataset_type='test')```<br/>
+```pred_test = model.predict(adata_test, dataset_type='test')```<br/>
+
+8. Optional - Saving and loading model: <br/>
+```
+model.save('./checkpoints/path.pt')
+model.load('./checkpoints/path.pt')
+```<br/>
 
 ## Dependencies
 
