@@ -78,10 +78,11 @@ model.train_classifier(
 ```pred_test = model.predict(adata_test, dataset_type='test')```<br/>
 
 8. Optional - Saving and loading model: <br/>
+
 ```
 model.save('./checkpoints/path.pt')
 model.load('./checkpoints/path.pt')
-```<br/>
+```
 
 ## Dependencies
 
