@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch import optim
 from torch.nn import functional as F
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -406,6 +407,7 @@ class inVAE(ABC):
         print_every_n_epochs: int = None,
         checkpoint_dir: str = None,
         n_checkpoints: int = 0,
+        use_lr_schedule: bool = False,
     ):
         if n_epochs is None:
             n_epochs = 500
@@ -421,6 +423,8 @@ class inVAE(ABC):
         self.module = self.module.float()
 
         optimizer = optim.Adam(self.module.parameters(), lr = lr_train, weight_decay = weight_decay)
+        if use_lr_schedule:
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=50)
 
         # Logger
         if log_dir is not None:
@@ -470,6 +474,10 @@ class inVAE(ABC):
                 
                 if (log_dir is not None) and (iteration % log_freq == 0):
                     writer.add_scalar('train_loss', temp_loss, iteration)
+
+            if use_lr_schedule:
+                loss_epoch /= len(self.data_loader)
+                scheduler.step(loss_epoch)
 
             end = time.time()
 

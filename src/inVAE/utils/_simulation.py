@@ -65,7 +65,6 @@ def prepare_params_decoder(x_dim, z_dim, h_dim=40, neg_slope=0.2):
     W4 *= np.sqrt(2 / (1 + neg_slope**2)) * np.sqrt(2.0 / (x_dim + h_dim))
     return {"W1": W1, "W2": W2, "W3": W3, "W4": W4}
 
-
 def decoder(z, params, neg_slope=0.2):
     W1, W2, W3, W4 = params["W1"], params["W2"], params["W3"], params["W4"]
     # note that this decoder is almost surely invertible WHEN dim <= h_dim <= x_dim
@@ -113,8 +112,10 @@ def synthetic_data(
 
     if correlate:
         var_tmp = np.eye(n_latents) + np.eye(n_latents, k=1) + np.eye(n_latents, k=-1)
-        var_tmp[n_latent_inv:, n_latent_inv:] = 0
-        var_tmp[range(n_latent_inv,n_latents), range(n_latent_inv,n_latents)] = 1# + var_batch[tmp]
+        var_tmp[(n_latent_inv-1):, (n_latent_inv-1):] = 0
+        var_tmp[range(n_latent_inv-1,n_latents), range(n_latent_inv-1,n_latents)] = 1# + var_batch[tmp]
+        # to ensure matrix is semi positive-definite as a covariance matrix
+        var_tmp = np.dot(var_tmp, var_tmp.T)
     else:
         var_tmp = np.eye(n_latents)
 
