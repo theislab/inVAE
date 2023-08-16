@@ -5,6 +5,7 @@ from itertools import product
 
 import scanpy as sc
 import scvi
+import pandas as pd
 import numpy as np
 
 # Necessary to import models as below
@@ -31,6 +32,8 @@ parser.add_argument('--device', default='cpu')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--n_samples', type=int, default=100)
 parser.add_argument('--beta', default=10)
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--n_epochs', type=int, default=2000)
 
 parser.add_argument('--correlate_latents', action='store_true')
 
@@ -140,7 +143,7 @@ for i in range(args.N_RUNS):
         batch_size=args.batch_size
     )
 
-    model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
+    model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10)
 
     latent = model.get_latent_representation(latent_type='full')
 
@@ -165,7 +168,7 @@ for i in range(args.N_RUNS):
         batch_size=args.batch_size
     )
 
-    model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
+    model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True)
 
     latent = model.get_latent_representation(latent_type='full')
 
@@ -179,3 +182,8 @@ for i in range(args.N_RUNS):
 
 for key, score_list in results_dict.items():
     print(f'{key}: {np.mean(score_list):.3f} +- {np.std(score_list):.3f}')
+
+dt = pd.DataFrame.from_dict(results_dict)
+import os  
+os.makedirs('simulate', exist_ok=True)  
+dt.to_csv('simulate/results.csv') 
