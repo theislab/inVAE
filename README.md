@@ -33,12 +33,12 @@ from inVAE import FinVAE, NFinVAE`
 
 inv_covar_keys = {
     'cont': [],
-    'cat': ['cell_type', 'donor'] #set to the keys in the adata
+    'cat': ['cell_type', 'disease'] #set to the keys in the adata
 }
 
 spur_covar_keys = {
     'cont': [],
-    'cat': ['site'] #set to the keys in the adata
+    'cat': ['batch'] #set to the keys in the adata
 }
 
 model = FinVAE(
