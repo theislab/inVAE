@@ -114,7 +114,7 @@ def synthetic_data(
         var_tmp = np.eye(n_latents) + np.eye(n_latents, k=1) + np.eye(n_latents, k=-1)
         var_tmp[(n_latent_inv-1):, (n_latent_inv-1):] = 0
         var_tmp[range(n_latent_inv-1,n_latents), range(n_latent_inv-1,n_latents)] = 1# + var_batch[tmp]
-        # to ensure matrix is semi positive-definite as a covariance matrix
+        # to ensure matrix is positive semi-definite as a covariance matrix
         var_tmp = np.dot(var_tmp, var_tmp.T)
     else:
         var_tmp = np.eye(n_latents)
