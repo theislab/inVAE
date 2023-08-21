@@ -1,4 +1,5 @@
 from typing import Literal
+import math
 
 import torch
 from torch import nn
@@ -23,6 +24,7 @@ class NFinVAEmodule(nn.Module):
         decoder_dist: Literal['normal', 'nb'] = 'nb',
         batch_norm: bool = True,
         dropout_rate: float = 0.0,
+        tc_beta: float = 0.0,
         batch_size: int = 256,
         data_dim: int = None,
         inv_covar_dim: int = None,
@@ -72,6 +74,7 @@ class NFinVAEmodule(nn.Module):
 
         # Training HPs
         self.batch_size = batch_size
+        self.tc_beta = tc_beta
 
         self.device = device
 
@@ -417,7 +420,12 @@ class NFinVAEmodule(nn.Module):
 
         return z
 
-    def elbo(self, x, inv_covar, spur_covar):
+    def elbo(self, x, inv_covar, spur_covar, dataset_size=None):
+        batch_size = x.shape[0]
+
+        if self.tc_beta > 0 and dataset_size is None:
+            raise ValueError('Dataset_size not given to elbo function, can not calculate Total Correlation loss part!')
+        
         if self.decoder_dist == 'normal':
             decoder_mean, latent_mean, latent_logvar, z = self.forward(x, inv_covar, spur_covar)
 
@@ -428,6 +436,18 @@ class NFinVAEmodule(nn.Module):
             log_px_z = log_nb_positive(x, decoder_mean, decoder_theta)
 
         log_qz_xde = log_normal(z, latent_mean, (latent_logvar.exp() + 1e-4))
+
+        if self.tc_beta > 0:
+            _logqz = log_normal(
+                z.view(batch_size, 1, self.latent_dim),
+                latent_mean.view(1, batch_size, self.latent_dim),
+                (latent_logvar.exp() + 1e-4).view(1, batch_size, self.latent_dim),
+                reduce=False
+            )
+
+            # minibatch weighted sampling
+            logqz_prodmarginals = (torch.logsumexp(_logqz, dim=1, keepdim=False) - math.log(batch_size * dataset_size)).sum(1)
+            logqz = (torch.logsumexp(_logqz.sum(2), dim=1, keepdim=False) - math.log(batch_size * dataset_size))
 
         # Clone z first then calculate parts of the prior with derivative wrt cloned z
         # prior
@@ -483,9 +503,19 @@ class NFinVAEmodule(nn.Module):
         else:
             sm_part = (d2prior_d2z + torch.mul(0.5, torch.pow(dprior_dz, 2)) + d2prior_d2z.pow(2).mul(self.reg_sm)).sum(dim=1).mean()
 
-        objective_function = (
-            (log_px_z + log_pz_d_inv_copy + log_pz_e_spur - log_qz_xde).mean().div(self.normalize_constant)   - 
-            sm_part
-        )
+        if self.tc_beta > 0:
+            objective_function = (
+                (
+                    log_px_z + 
+                    log_pz_d_inv_copy + log_pz_e_spur - log_qz_xde -
+                    self.tc_beta * (logqz - logqz_prodmarginals)
+                ).mean().div(self.normalize_constant) -
+                sm_part
+            )
+        else:
+            objective_function = (
+                (log_px_z + log_pz_d_inv_copy + log_pz_e_spur - log_qz_xde).mean().div(self.normalize_constant)   - 
+                sm_part
+            )
 
         return objective_function, z

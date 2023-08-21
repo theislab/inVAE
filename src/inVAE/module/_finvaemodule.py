@@ -1,4 +1,5 @@
 from typing import Literal
+import math
 
 import torch
 from torch import distributions as dist
@@ -24,6 +25,7 @@ class FinVAEmodule(nn.Module):
         batch_norm: bool = True,
         dropout_rate: float = 0.0,
         kl_rate: float = 1.0,
+        tc_beta: float = 0.0,
         batch_size: int = 256,
         elbo_version: Literal['kl_div', 'sample'] = 'sample',
         data_dim: int = None,
@@ -62,6 +64,7 @@ class FinVAEmodule(nn.Module):
 
         # Training HPs
         self.beta = kl_rate
+        self.tc_beta = tc_beta
         self.elbo_version = elbo_version
         self.batch_size = batch_size
 
@@ -443,7 +446,12 @@ class FinVAEmodule(nn.Module):
 
             return decoder_mean, decoder_theta, encoder_params, z, prior_params_mean, prior_params_var
     
-    def elbo(self, x, inv_covar, spur_covar):
+    def elbo(self, x, inv_covar, spur_covar, dataset_size=None):
+        batch_size = x.shape[0]
+
+        if self.tc_beta > 0 and dataset_size is None:
+            raise ValueError('Dataset_size not given to elbo function, can not calculate Total Correlation loss part!')
+        
         if self.decoder_dist == 'normal':
             decoder_params, (g, v), z, prior_params_mean, prior_params_var = self.forward(x, inv_covar, spur_covar)
             log_px_z = self.decoder_dist_fct.log_pdf(x, *decoder_params)
@@ -464,7 +472,25 @@ class FinVAEmodule(nn.Module):
             else:
                 log_pzs_e = 0
 
-            return (log_px_z + self.beta * (log_pzi_d + log_pzs_e - log_qz_xde)).mean(), z
+            if self.tc_beta > 0:
+                _logqz = self.encoder_dist.log_pdf(
+                    z.view(batch_size, 1, self.latent_dim),
+                    g.view(1, batch_size, self.latent_dim),
+                    v.view(1, batch_size, self.latent_dim),
+                    reduce=False
+                )
+
+                # minibatch weighted sampling
+                logqz_prodmarginals = (torch.logsumexp(_logqz, dim=1, keepdim=False) - math.log(batch_size * dataset_size)).sum(1)
+                logqz = (torch.logsumexp(_logqz.sum(2), dim=1, keepdim=False) - math.log(batch_size * dataset_size))
+
+                return (
+                    log_px_z + 
+                    self.beta * (log_pzi_d + log_pzs_e - log_qz_xde) -
+                    self.tc_beta * (logqz - logqz_prodmarginals)
+                ).mean(), z
+            else:
+                return (log_px_z + self.beta * (log_pzi_d + log_pzs_e - log_qz_xde)).mean(), z
         elif self.elbo_version == 'kl_div':
             if torch.any(torch.isnan(g)) or torch.any(torch.isnan(v)):
                 return torch.tensor(float('nan')), z

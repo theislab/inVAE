@@ -31,6 +31,8 @@ class inVAE(ABC):
             self.module.eval()
 
             transformed_data = self.transformed_data
+
+            dataset_size = self.adata.n_obs
         else:
             print(f'Calculating ELBO of passed adata by trying to transfer setup from the adata the model was trained on!')
 
@@ -39,6 +41,8 @@ class inVAE(ABC):
             data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = use_cuda, convert = self.data_loading_encoders)
 
             transformed_data = data_loader.dataset[:]
+
+            dataset_size = adata.n_obs
         
         # Gene counts
         x = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
@@ -51,7 +55,7 @@ class inVAE(ABC):
         spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
         spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
-        elbo, _ = self.module.elbo(x, inv_covar, spur_covar)
+        elbo, _ = self.module.elbo(x, inv_covar, spur_covar, dataset_size)
 
         neg_elbo = -elbo.detach().cpu().numpy()
 
@@ -431,6 +435,7 @@ class inVAE(ABC):
             writer = SummaryWriter(log_dir=log_dir)
 
         max_iter = len(self.data_loader) * n_epochs
+        dataset_size = self.adata.n_obs
 
         if print_every_n_epochs is None:
             print_every_n_iters = max_iter / 5
@@ -464,7 +469,7 @@ class inVAE(ABC):
 
                 optimizer.zero_grad(set_to_none=True)
 
-                objective_fct, _ = self.module.elbo(x, inv_covar, spur_covar)
+                objective_fct, _ = self.module.elbo(x, inv_covar, spur_covar, dataset_size)
 
                 objective_fct.mul(-1).backward()
                 optimizer.step()
