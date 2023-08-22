@@ -104,15 +104,16 @@ for tc_beta in tc_list:
             batch_size=args.batch_size
         )
 
-        model.train(n_epochs = 2000, lr_train=0.001, weight_decay=0.0001)
+        model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True, lr_scheduler_patience=10)
 
         latent = model.get_latent_representation(latent_type='full')
 
-        results_dict[f'mcc_pear_f_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='pearson'))
+        if not np.isnan(latent).any():
+            results_dict[f'mcc_pear_f_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='pearson'))
 
-        results_dict[f'mcc_spear_f_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='spearman'))
+            results_dict[f'mcc_spear_f_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='spearman'))
 
-        results_dict[f'r2_f_invae_{tc_beta}'].append(get_linear_score(gt_latent, latent))
+            results_dict[f'r2_f_invae_{tc_beta}'].append(get_linear_score(gt_latent, latent))
 
         # NFinVAE
         model = NFinVAE(
@@ -128,15 +129,16 @@ for tc_beta in tc_list:
             batch_size=args.batch_size
         )
 
-        model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True)
+        model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True, lr_scheduler_patience=10)
 
         latent = model.get_latent_representation(latent_type='full')
 
-        results_dict[f'mcc_pear_nf_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='pearson'))
+        if not np.isnan(latent).any():
+            results_dict[f'mcc_pear_nf_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='pearson'))
 
-        results_dict[f'mcc_spear_nf_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='spearman'))
+            results_dict[f'mcc_spear_nf_invae_{tc_beta}'].append(mcc(gt_latent, latent, method='spearman'))
 
-        results_dict[f'r2_nf_invae_{tc_beta}'].append(get_linear_score(gt_latent, latent))
+            results_dict[f'r2_nf_invae_{tc_beta}'].append(get_linear_score(gt_latent, latent))
 
     for key, score_list in results_dict.items():
         if len(score_list) > 0:

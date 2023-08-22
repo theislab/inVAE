@@ -412,6 +412,7 @@ class inVAE(ABC):
         checkpoint_dir: str = None,
         n_checkpoints: int = 0,
         use_lr_schedule: bool = False,
+        lr_scheduler_patience: int = 50,
     ):
         if n_epochs is None:
             n_epochs = 500
@@ -428,7 +429,7 @@ class inVAE(ABC):
 
         optimizer = optim.Adam(self.module.parameters(), lr = lr_train, weight_decay = weight_decay)
         if use_lr_schedule:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=50)
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=lr_scheduler_patience)
 
         # Logger
         if log_dir is not None:
