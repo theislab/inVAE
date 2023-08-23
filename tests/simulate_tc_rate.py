@@ -31,6 +31,7 @@ parser.add_argument('--n_samples', type=int, default=100)
 parser.add_argument('--correlate_latents', action='store_true')
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--lr_scheduler_patience', type=int, default=50)
+parser.add_argument('--min_tc', type=int, default=0)
 
 args = parser.parse_args()
 
@@ -39,7 +40,7 @@ latent_dim_inv = args.latent_dim_inv
 latent_dim_spur = latent_dim - latent_dim_inv
 
 # dict for results
-tc_list = [0, 1., 2., 3., 4., 5., 6., 7., 8., 9., 10.]
+tc_list = range(args.min_tc, 11)
 
 results_dict = {}
 
@@ -149,4 +150,4 @@ for tc_beta in tc_list:
 
     dt = pd.DataFrame.from_dict(results_dict_tmp) 
     os.makedirs('simulatetcrate', exist_ok=True)  
-    dt.to_csv('simulatetcrate/synthetic_data_f_nf_invae_results.csv')  
+    dt.to_csv(f'simulatetcrate/synthetic_data_f_nf_invae_results_{args.min_tc}_to_10.csv')  
