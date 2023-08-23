@@ -429,7 +429,7 @@ class inVAE(ABC):
 
         optimizer = optim.Adam(self.module.parameters(), lr = lr_train, weight_decay = weight_decay)
         if use_lr_schedule:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=lr_scheduler_patience)
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=lr_scheduler_patience, verbose=True)
 
         # Logger
         if log_dir is not None:

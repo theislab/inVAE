@@ -30,6 +30,7 @@ parser.add_argument('--batch_size', type=int, default=256)
 parser.add_argument('--n_samples', type=int, default=100)
 parser.add_argument('--correlate_latents', action='store_true')
 parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--lr_scheduler_patience', type=int, default=50)
 
 args = parser.parse_args()
 
@@ -104,7 +105,7 @@ for tc_beta in tc_list:
             batch_size=args.batch_size
         )
 
-        model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True, lr_scheduler_patience=10)
+        model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True, lr_scheduler_patience=args.lr_scheduler_patience)
 
         latent = model.get_latent_representation(latent_type='full')
 
@@ -129,7 +130,7 @@ for tc_beta in tc_list:
             batch_size=args.batch_size
         )
 
-        model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True, lr_scheduler_patience=10)
+        model.train(n_epochs = args.n_epochs, lr_train=args.lr, weight_decay=args.lr/10, use_lr_schedule=True, lr_scheduler_patience=args.lr_scheduler_patience)
 
         latent = model.get_latent_representation(latent_type='full')
 
@@ -144,6 +145,6 @@ for tc_beta in tc_list:
         if len(score_list) > 0:
             print(f'{key}: {np.mean(score_list):.3f} +- {np.std(score_list):.3f}')
 
-dt = pd.DataFrame.from_dict(results_dict) 
-os.makedirs('simulatetcrate', exist_ok=True)  
-dt.to_csv('simulatetcrate/synthetic_data_f_nf_invae_results.csv')  
+    dt = pd.DataFrame.from_dict(results_dict) 
+    os.makedirs('simulatetcrate', exist_ok=True)  
+    dt.to_csv('simulatetcrate/synthetic_data_f_nf_invae_results.csv')  
