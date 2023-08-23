@@ -145,6 +145,8 @@ for tc_beta in tc_list:
         if len(score_list) > 0:
             print(f'{key}: {np.mean(score_list):.3f} +- {np.std(score_list):.3f}')
 
-    dt = pd.DataFrame.from_dict(results_dict) 
+    results_dict_tmp = {k: results_dict[k] for k in results_dict.keys() if len(results_dict[k]) == args.N_RUNS}
+
+    dt = pd.DataFrame.from_dict(results_dict_tmp) 
     os.makedirs('simulatetcrate', exist_ok=True)  
     dt.to_csv('simulatetcrate/synthetic_data_f_nf_invae_results.csv')  
