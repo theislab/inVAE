@@ -55,6 +55,9 @@ class inVAE(ABC):
         spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
         spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
+        # can not calculate tc loss across whole dataset: would be shape N x N x latent_dim
+        self.module.tc_beta = 0
+
         elbo, _ = self.module.elbo(x, inv_covar, spur_covar, dataset_size)
 
         neg_elbo = -elbo.detach().cpu().numpy()

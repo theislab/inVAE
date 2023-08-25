@@ -27,7 +27,7 @@ print(f'The current directory is: {os.getcwd()}')
 parser = argparse.ArgumentParser(description='Single-cell HP for generative models to experiment with different TC beta hyperparameters')
 
 ## Which model? -> ['f_invae', 'nf_invae'] ----------------------
-parser.add_argument('--model', default='nf_invae')
+parser.add_argument('--model', default='f_invae')
 
 ## Data arguments -----------------------------------------------------------------
 parser.add_argument('--dataset', default='multiome')
@@ -71,9 +71,16 @@ parser.add_argument('--fix_var_prior', action='store_true')
 
 # Classifier args
 parser.add_argument('--n_samples_val_label_match', type=int, default=1000)
+parser.add_argument('--n_epochs_opt_val', type=int, default=50)
 parser.add_argument('--test_acc', action='store_true')
 
 args = parser.parse_args()
+
+if args.debug:
+    args.n_experiments = 1
+    args.n_epochs_phase_1 = 1
+    args.n_samples_val_label_match = 1
+    args.n_epochs_opt_val = 1
 
 os.makedirs(f'./outputs/{args.model}/multiome/', exist_ok=True)
 
@@ -97,6 +104,9 @@ if args.set_seed:
 if args.dataset == 'multiome':
     adata = sc.read(f'./data/multiome_gex_processed_training.h5ad')
 
+    label_key = 'cell_type'
+    batch_key = 'batch'
+
     inv_covar_keys = {
         'cont': [],
         'cat': ['cell_type', 'donor']
@@ -107,46 +117,57 @@ if args.dataset == 'multiome':
         'cat': ['site']
     }
 
-if not args.no_preprocessing:
-    if args.decoder_dist == 'normal':
-        sc.pp.scale(adata, layer='counts', zero_center=True, copy=False)
-    elif args.decoder_dist == 'nb':
-        print('The log transformation is done by the model; raw counts are passed to it!')
+    if not args.no_preprocessing:
+        if args.decoder_dist == 'normal':
+            sc.pp.scale(adata, layer='counts', zero_center=True, copy=False)
+        elif args.decoder_dist == 'nb':
+            print('The log transformation is done by the model; raw counts are passed to it!')
 
-sc.pp.highly_variable_genes(adata, layer='log_norm', n_top_genes=args.n_top_genes)
+    sc.pp.highly_variable_genes(adata, layer='log_norm', n_top_genes=args.n_top_genes)
 
-# Split data into train and test environments (with batch names)
+    # Split data into train and test environments (with batch names)
 
-# for idVAE model first save site and donor info sep
+    # for idVAE model first save site and donor info sep
 
-# site:
-adata.obs['site'] = [s[1] for s in adata.obs['batch']]
+    # site:
+    adata.obs['site'] = [s[1] for s in adata.obs['batch']]
 
-# donor:
-adata.obs['donor'] = [s[3] for s in adata.obs['batch']]
+    # donor:
+    adata.obs['donor'] = [s[3] for s in adata.obs['batch']]
 
-train_batch_names = ['s1d1', 's1d2', 's2d1']
-val_batch_names = ['s2d4']
-test_batch_names = ['s3d6']
+    train_batch_names = ['s1d1', 's1d2', 's2d1']
+    val_batch_names = ['s2d4']
+    test_batch_names = ['s3d6']
 
-adata_train = adata[
-    adata.obs.batch.isin(train_batch_names), 
-    adata.var.highly_variable
-].copy()
+    adata_train = adata[
+        adata.obs.batch.isin(train_batch_names), 
+        adata.var.highly_variable
+    ].copy()
 
-adata_val = adata[
-    adata.obs.batch.isin(val_batch_names),
-    adata.var.highly_variable
-].copy()
+    if args.debug:
+        adata_val = adata[
+        adata.obs.batch.isin(val_batch_names),
+        adata.var.highly_variable
+        ][:100].copy()    
 
-adata_test = adata[
-    adata.obs.batch.isin(test_batch_names), 
-    adata.var.highly_variable
-].copy()
+        adata_test = adata[
+            adata.obs.batch.isin(test_batch_names), 
+            adata.var.highly_variable
+        ][:100].copy()
+    else:
+        adata_val = adata[
+            adata.obs.batch.isin(val_batch_names),
+            adata.var.highly_variable
+        ].copy()
+
+        adata_test = adata[
+            adata.obs.batch.isin(test_batch_names), 
+            adata.var.highly_variable
+        ].copy()
 
 experiments_dt = pd.DataFrame()
 
-tc_list = [0, 2, 4, 6, 8, 10]
+tc_list = [0, 2, 4, 6, 8, 10] if not args.debug else [1]
 
 print('>>> Results:')
 
@@ -258,7 +279,7 @@ for tc_beta in tc_list:
                     **hp_dict
                 )
             else:
-                #TODO implement model loading
+                #TODO test model loading
                 checkpoint_model = torch.load(args.load_checkpoint_path, map_location=device)
 
                 model = NFinVAE(
@@ -269,7 +290,7 @@ for tc_beta in tc_list:
                     **checkpoint_model['hyperparameters']
                 )
 
-                model.load_state_dict(checkpoint_model['model_state_dict'])
+                model.module.load_state_dict(checkpoint_model['model_state_dict'])
 
                 hp_dict = checkpoint_model['hyperparameters']
         elif args.model == 'f_invae':
@@ -292,7 +313,7 @@ for tc_beta in tc_list:
                     **checkpoint_model['hyperparameters']
                 )
 
-                model.load_state_dict(checkpoint_model['model_state_dict'])
+                model.module.load_state_dict(checkpoint_model['model_state_dict'])
 
                 hp_dict = checkpoint_model['hyperparameters']
         else:
@@ -345,8 +366,8 @@ for tc_beta in tc_list:
             batch_key = 'batch',
             label_key = 'cell_type',
             n_epochs_train_class = 500,
-            n_epochs_opt_val = 100,
-            nr_samples = 100,
+            n_epochs_opt_val = args.n_epochs_opt_val,
+            nr_samples = args.n_samples_val_label_match,
             hidden_dim_class = 50,
             n_layers_class = 1,
             act_class = 'relu',
@@ -358,9 +379,16 @@ for tc_beta in tc_list:
 
         pred_train = model.predict(adata_train, dataset_type='train')
         pred_val = model.predict(adata_val, dataset_type='val')
-        pred_train = model.predict(adata_test, dataset_type='test')
 
-        # TODO: calculate accuracies and MCC?
+        # Calculate accuracies
+        train_acc = (pred_train == adata_train.obs[label_key]).sum() / adata_train.n_obs
+        val_acc = (pred_val == adata_val.obs[label_key]).sum() / adata_val.n_obs
+
+        if args.test_acc:
+            pred_test = model.predict(adata_test, dataset_type='test')
+            test_acc = (pred_test == adata_test.obs[label_key]).sum() / adata_test.n_obs
+
+        # TODO: test calculate accuracies and implement MCC?
 
         ## Save HP in dataframe for investigating best choices
         hp_dict['experiment_id'] = experiment_id
@@ -374,7 +402,15 @@ for tc_beta in tc_list:
         hp_dict['loss'] = model.get_negative_elbo()
         hp_dict['val_loss'] = model.get_negative_elbo(adata_val)
 
-        #TODO: save accuracies
+        #TODO: save MCC
+        hp_dict['n_epochs_opt_val'] = args.n_epochs_opt_val
+        hp_dict['n_samples_val_label_match'] = args.n_samples_val_label_match
+
+        hp_dict['train_acc'] = train_acc
+        hp_dict['val_acc'] = val_acc
+        
+        if args.test_acc:
+            hp_dict['test_acc'] = test_acc
         
         if args.load_checkpoint_path == '':
             save_path = f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_checkpoint_end_training.pth'
