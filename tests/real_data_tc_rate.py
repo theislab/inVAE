@@ -74,6 +74,9 @@ parser.add_argument('--n_samples_val_label_match', type=int, default=1000)
 parser.add_argument('--n_epochs_opt_val', type=int, default=50)
 parser.add_argument('--test_acc', action='store_true')
 
+# Which tc beta to start with?
+parser.add_argument('--start_tc_beta', type=int, default=0)
+
 args = parser.parse_args()
 
 if args.debug:
@@ -167,7 +170,9 @@ if args.dataset == 'multiome':
 
 experiments_dt = pd.DataFrame()
 
-tc_list = [0, 2, 4, 6, 8, 10] if not args.debug else [1]
+tc_list = list(range(args.start_tc_beta, 11, 2)) if not args.debug else [1]
+
+print(f'Trying out the following tc beta HPs: {tc_list}')
 
 print('>>> Results:')
 
@@ -413,7 +418,7 @@ for tc_beta in tc_list:
             hp_dict['test_acc'] = test_acc
         
         if args.load_checkpoint_path == '':
-            save_path = f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_checkpoint_end_training.pth'
+            save_path = f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_tc_beta_{tc_beta}_checkpoint_end_training.pth'
                         
             torch.save({
                 'epoch': args.n_epochs_phase_1,
@@ -423,6 +428,6 @@ for tc_beta in tc_list:
 
         output_dt = pd.DataFrame([hp_dict])
         experiments_dt = pd.concat([experiments_dt, output_dt], ignore_index=True)
-        experiments_dt.to_csv(f'./outputs/{args.model}/multiome/{experiment_id}_nexp_{args.n_experiments}_{args.n_top_genes}_genes.csv')
+        experiments_dt.to_csv(f'./outputs/{args.model}/multiome/{experiment_id}_nexp_{args.n_experiments}_{args.n_top_genes}_genes_tc_beta_{tc_beta}.csv')
 
 print("The experiment run is done!")
