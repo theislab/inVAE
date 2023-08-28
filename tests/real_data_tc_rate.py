@@ -76,6 +76,7 @@ parser.add_argument('--test_acc', action='store_true')
 
 # Which tc beta to start with?
 parser.add_argument('--start_tc_beta', type=int, default=0)
+parser.add_argument('--end_tc_beta', type=int, default=10)
 
 args = parser.parse_args()
 
@@ -170,7 +171,7 @@ if args.dataset == 'multiome':
 
 experiments_dt = pd.DataFrame()
 
-tc_list = list(range(args.start_tc_beta, 11, 2)) if not args.debug else [1]
+tc_list = list(range(args.start_tc_beta, args.end_tc_beta + 1, 2)) if not args.debug else [1]
 
 print(f'Trying out the following tc beta HPs: {tc_list}')
 
