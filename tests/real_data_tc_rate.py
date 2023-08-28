@@ -348,21 +348,21 @@ for tc_beta in tc_list:
         sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_full')
         sc.tl.umap(adata_train)
         fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
-        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_{args.decoder_dist}_train_latent_full.png', bbox_inches='tight')
+        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_{args.decoder_dist}_train_latent_full_tc_beta_{tc_beta}.png', bbox_inches='tight')
         plt.close(fig)
 
         # Invariant latent space
         sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_inv')
         sc.tl.umap(adata_train)
         fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
-        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_inv.png', bbox_inches='tight')
+        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_inv_tc_beta_{tc_beta}.png', bbox_inches='tight')
         plt.close(fig)
 
         # Spurious latent space
         sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_spur')
         sc.tl.umap(adata_train)
         fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
-        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_spur.png', bbox_inches='tight')
+        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_spur_tc_beta_{tc_beta}.png', bbox_inches='tight')
         plt.close(fig)
 
         # Train classifier
@@ -428,6 +428,6 @@ for tc_beta in tc_list:
 
         output_dt = pd.DataFrame([hp_dict])
         experiments_dt = pd.concat([experiments_dt, output_dt], ignore_index=True)
-        experiments_dt.to_csv(f'./outputs/{args.model}/multiome/{experiment_id}_nexp_{args.n_experiments}_{args.n_top_genes}_genes_tc_beta_{tc_beta}.csv')
+        experiments_dt.to_csv(f'./outputs/{args.model}/multiome/{experiment_id}_nexp_{args.n_experiments}_{args.n_top_genes}_genes.csv')
 
 print("The experiment run is done!")
