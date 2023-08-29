@@ -49,7 +49,8 @@ parser.add_argument('--n_epochs_phase_1', type=int, default=50)
 parser.add_argument('--latent_dim_fixed', type=int, default=-1)
 # Changes distribution of the decoder: ['nb', 'normal']
 parser.add_argument('--decoder_dist', default='nb')
-parser.add_argument('--no_norm_const', action='store_true', default=True)
+parser.add_argument('--no_norm_const', action='store_true')#, default=True)
+parser.add_argument('--norm_constant', type=float, default=-1.0)
 #parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--hidden_dim', type=int, default=-1)
 parser.add_argument('--n_layers', type=int, default=-1)
@@ -210,8 +211,10 @@ for tc_beta in tc_list:
         # and then dividing by it to keep in reasonable range
         if args.no_norm_const:
             normalize_constant = 1
-        else:
+        elif args.norm_constant <= 0:
             normalize_constant = 10**np.random.uniform(1, 5)
+        else:
+            normalize_constant = args.norm_constant
         
         if args.model == 'nf_invae':
             if args.latent_dim_noise_fixed < 0:
