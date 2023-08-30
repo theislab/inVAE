@@ -226,9 +226,9 @@ for tc_beta in tc_list:
             sm_non_zero_weight = 10**np.random.uniform(-4, -2)
             score_matching_weight = np.random.choice([0, sm_non_zero_weight])
 
-            #output_dim_prior_nn = np.random.randint(4*latent_dim, 6*latent_dim) #np.random.choice([40, 50, 60])
-            #hidden_dim_prior = output_dim_prior_nn + np.random.randint(1, 2*latent_dim) #np.random.choice([80, 100, 120])
-            n_layers_prior = 2
+            output_dim_prior_nn = np.random.randint(4*latent_dim, 6*latent_dim) #np.random.choice([40, 50, 60])
+            hidden_dim_prior = output_dim_prior_nn + np.random.randint(1, 2*latent_dim) #np.random.choice([80, 100, 120])
+            n_layers_prior = np.random.choice([2, 3])
             
             # Init model with random hyperparameters
             hp_dict = dict(
@@ -349,53 +349,59 @@ for tc_beta in tc_list:
         adata_train.obsm[f'X_{args.model}_spur'] = latent_spur
 
         # Full latent space
-        sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_full')
-        sc.tl.umap(adata_train)
-        fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
-        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_{args.decoder_dist}_train_latent_full_tc_beta_{tc_beta}.png', bbox_inches='tight')
-        plt.close(fig)
+        if not np.isnan(latent_full).any():
+            sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_full')
+            sc.tl.umap(adata_train)
+            fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
+            fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_{args.decoder_dist}_train_latent_full_tc_beta_{tc_beta}.png', bbox_inches='tight')
+            plt.close(fig)
 
         # Invariant latent space
-        sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_inv')
-        sc.tl.umap(adata_train)
-        fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
-        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_inv_tc_beta_{tc_beta}.png', bbox_inches='tight')
-        plt.close(fig)
+        if not np.isnan(latent_inv).any():
+            sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_inv')
+            sc.tl.umap(adata_train)
+            fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
+            fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_inv_tc_beta_{tc_beta}.png', bbox_inches='tight')
+            plt.close(fig)
 
         # Spurious latent space
-        sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_spur')
-        sc.tl.umap(adata_train)
-        fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
-        fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_spur_tc_beta_{tc_beta}.png', bbox_inches='tight')
-        plt.close(fig)
+        if not np.isnan(latent_spur).any():
+            sc.pp.neighbors(adata_train, use_rep=f'X_{args.model}_spur')
+            sc.tl.umap(adata_train)
+            fig = sc.pl.umap(adata_train, color=['batch', 'cell_type'], return_fig=True, show=False)
+            fig.savefig(f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_train_latent_spur_tc_beta_{tc_beta}.png', bbox_inches='tight')
+            plt.close(fig)
 
         # Train classifier
-        model.train_classifier(
-            adata_val,
-            batch_key = 'batch',
-            label_key = 'cell_type',
-            n_epochs_train_class = 500,
-            n_epochs_opt_val = args.n_epochs_opt_val,
-            nr_samples = args.n_samples_val_label_match,
-            hidden_dim_class = 50,
-            n_layers_class = 1,
-            act_class = 'relu',
-            lr_train_class = 0.01,
-            lr_opt_val = 0.001,
-            class_print_every_n_epochs = 100,
-            opt_val_print_every_n_epochs = 10
-        )
+        train_loss = model.get_negative_elbo()
 
-        pred_train = model.predict(adata_train, dataset_type='train')
-        pred_val = model.predict(adata_val, dataset_type='val')
+        if not np.isnan(train_loss):
+            model.train_classifier(
+                adata_val,
+                batch_key = 'batch',
+                label_key = 'cell_type',
+                n_epochs_train_class = 500,
+                n_epochs_opt_val = args.n_epochs_opt_val,
+                nr_samples = args.n_samples_val_label_match,
+                hidden_dim_class = 50,
+                n_layers_class = 1,
+                act_class = 'relu',
+                lr_train_class = 0.01,
+                lr_opt_val = 0.001,
+                class_print_every_n_epochs = 100,
+                opt_val_print_every_n_epochs = 10
+            )
 
-        # Calculate accuracies
-        train_acc = (pred_train == adata_train.obs[label_key]).sum() / adata_train.n_obs
-        val_acc = (pred_val == adata_val.obs[label_key]).sum() / adata_val.n_obs
+            pred_train = model.predict(adata_train, dataset_type='train')
+            pred_val = model.predict(adata_val, dataset_type='val')
 
-        if args.test_acc:
-            pred_test = model.predict(adata_test, dataset_type='test')
-            test_acc = (pred_test == adata_test.obs[label_key]).sum() / adata_test.n_obs
+            # Calculate accuracies
+            train_acc = (pred_train == adata_train.obs[label_key]).sum() / adata_train.n_obs
+            val_acc = (pred_val == adata_val.obs[label_key]).sum() / adata_val.n_obs
+
+            if args.test_acc:
+                pred_test = model.predict(adata_test, dataset_type='test')
+                test_acc = (pred_test == adata_test.obs[label_key]).sum() / adata_test.n_obs
 
         # TODO: test calculate accuracies and implement MCC?
 
@@ -408,18 +414,18 @@ for tc_beta in tc_list:
 
         hp_dict['n_epochs_phase_1'] = args.n_epochs_phase_1
 
-        hp_dict['loss'] = model.get_negative_elbo()
+        hp_dict['loss'] = train_loss
         hp_dict['val_loss'] = model.get_negative_elbo(adata_val)
 
         #TODO: save MCC
         hp_dict['n_epochs_opt_val'] = args.n_epochs_opt_val
         hp_dict['n_samples_val_label_match'] = args.n_samples_val_label_match
 
-        hp_dict['train_acc'] = train_acc
-        hp_dict['val_acc'] = val_acc
+        hp_dict['train_acc'] = train_acc if not np.isnan(train_loss) else 0
+        hp_dict['val_acc'] = val_acc if not np.isnan(train_loss) else 0
         
         if args.test_acc:
-            hp_dict['test_acc'] = test_acc
+            hp_dict['test_acc'] = test_acc if not np.isnan(train_loss) else 0
         
         if args.load_checkpoint_path == '':
             save_path = f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_tc_beta_{tc_beta}_checkpoint_end_training.pth'
