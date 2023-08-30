@@ -247,8 +247,8 @@ for tc_beta in tc_list:
                 dropout_rate = 0.1,
                 batch_size = args.batch_size,
                 reg_sm = score_matching_weight,
-                output_dim_prior_nn = None,
-                hidden_dim_prior =  None,
+                output_dim_prior_nn = output_dim_prior_nn,
+                hidden_dim_prior =  hidden_dim_prior,
                 n_layers_prior =  n_layers_prior,
                 inject_covar_in_latent = False,
             )
