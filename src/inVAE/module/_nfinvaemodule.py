@@ -23,6 +23,7 @@ class NFinVAEmodule(nn.Module):
         fix_var_spur_prior: bool = False,
         decoder_dist: Literal['normal', 'nb'] = 'nb',
         batch_norm: bool = True,
+        batch_norm_prior: bool = False,
         dropout_rate: float = 0.0,
         tc_beta: float = 0.0,
         batch_size: int = 256,
@@ -170,7 +171,7 @@ class NFinVAEmodule(nn.Module):
             n_layers=n_layers_prior, 
             activation=activation, 
             device=device,
-            batch_norm=batch_norm,
+            batch_norm=batch_norm_prior,
             dropout_rate=dropout_rate
         ).to(self.device)
 
@@ -181,7 +182,7 @@ class NFinVAEmodule(nn.Module):
             n_layers=n_layers_prior, 
             activation=activation, 
             device=device,
-            batch_norm=batch_norm,
+            batch_norm=batch_norm_prior,
             dropout_rate=dropout_rate
         ).to(self.device)
         
@@ -192,7 +193,7 @@ class NFinVAEmodule(nn.Module):
             n_layers=n_layers_prior, 
             activation=activation, 
             device=device,
-            batch_norm=batch_norm,
+            batch_norm=batch_norm_prior,
             dropout_rate=dropout_rate
         ).to(self.device)
 
@@ -215,7 +216,7 @@ class NFinVAEmodule(nn.Module):
                         activation=activation, 
                         slope=slope, 
                         device=device,
-                        batch_norm=batch_norm,
+                        batch_norm=batch_norm_prior,
                         dropout_rate=dropout_rate
                     ).to(device)
                 else:
@@ -230,7 +231,7 @@ class NFinVAEmodule(nn.Module):
                         activation=activation, 
                         slope=slope, 
                         device=device,        
-                        batch_norm=batch_norm,
+                        batch_norm=batch_norm_prior,
                         dropout_rate=dropout_rate
                     ).to(device)
                 else:
@@ -251,7 +252,7 @@ class NFinVAEmodule(nn.Module):
                         slope=slope, 
                         device=device, 
                         end_with_act=True,
-                        batch_norm=batch_norm,
+                        batch_norm=batch_norm_prior,
                         dropout_rate=dropout_rate
                     ).to(device)
 
@@ -263,6 +264,7 @@ class NFinVAEmodule(nn.Module):
         else:
             self.prior_mean_spur = None
             self.logl_spur = None
+
         # Init every linear layer with xavier uniform
         self.apply(weights_init)
 
