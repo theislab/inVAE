@@ -40,6 +40,7 @@ parser.add_argument('--n_experiments', type=int, default=10)
 parser.add_argument('--batch_size', type=int, default=256)
 parser.add_argument('--set_seed', action='store_true')
 parser.add_argument('--load_checkpoint_path', default='')
+parser.add_argument('--load_hps_path', default='')#'./outputs/f_invae/multiome/1692952668_0_checkpoint_end_training.pth')
 parser.add_argument('--debug', action='store_true')#, default=True)
 parser.add_argument('--track_execution_time', action='store_true')
 
@@ -172,7 +173,17 @@ if args.dataset == 'multiome':
 
 experiments_dt = pd.DataFrame()
 
-tc_list = list(range(args.start_tc_beta, args.end_tc_beta + 1, 2)) if not args.debug else [1]
+if (args.load_hps_path == '') and (args.load_checkpoint_path == ''):
+    tc_list = list(range(args.start_tc_beta, args.end_tc_beta + 1, 2)) if not args.debug else [1]
+else:
+    if args.load_hps_path != '':
+        checkpoint_model = torch.load(args.load_hps_path, map_location=device)
+    else:
+        checkpoint_model = torch.load(args.load_checkpoint_path, map_location=device)
+
+    hp_dict = checkpoint_model['hyperparameters']
+
+    tc_list = [hp_dict['tc_beta']]
 
 print(f'Trying out the following tc beta HPs: {tc_list}')
 
@@ -182,104 +193,79 @@ for tc_beta in tc_list:
     for exp_id in range(args.n_experiments):
         print(f'\nRunning experiment {exp_id}/{args.n_experiments-1} ...')
         
-        lr_train = 10**np.random.uniform(-5, -2)
-
-        weight_decay = 10**np.random.uniform(-6, -3)
-
-        # Generate combinations of hyperparameters
-        if args.latent_dim_fixed < 0:
-            latent_dim = np.random.choice([10, 20, 30, 40, 50])
-        else:
-            latent_dim = args.latent_dim_fixed
-        
-        if args.hidden_dim < 0:
-            hidden_dim_x = int(2**np.random.uniform(6, 10))
-        else:
-            hidden_dim_x = args.hidden_dim
-
-        if args.n_layers < 0:
-            n_layers_x = np.random.randint(2, 5)
-        else:
-            n_layers_x  = args.n_layers
-
-        if args.activation == '':
-            activation = np.random.choice(['lrelu', 'relu'])
-        else:
-            activation = args.activation
-
-        # Think of normalizing constant as a HP for prior importance, i.e. upweighting the Score Matching part
-        # and then dividing by it to keep in reasonable range
-        if args.no_norm_const:
-            normalize_constant = 1
-        elif args.norm_constant <= 0:
-            normalize_constant = 10**np.random.uniform(1, 5)
-        else:
-            normalize_constant = args.norm_constant
-        
-        if args.model == 'nf_invae':
-            if args.latent_dim_noise_fixed < 0:
-                latent_dim_noise = np.random.randint(1, int(latent_dim/5))
-            else:
-                latent_dim_noise = args.latent_dim_noise_fixed
-
-            # Weight for regularized score matching (50% of the times = 0)
-            sm_non_zero_weight = 10**np.random.uniform(-4, -2)
-            score_matching_weight = np.random.choice([0, sm_non_zero_weight])
-
-            output_dim_prior_nn = np.random.randint(4*latent_dim, 6*latent_dim) #np.random.choice([40, 50, 60])
-            hidden_dim_prior = output_dim_prior_nn + np.random.randint(1, 2*latent_dim) #np.random.choice([80, 100, 120])
-            n_layers_prior = np.random.choice([2, 3])
-            
+        if (args.load_hps_path == '') and (args.load_checkpoint_path == ''):
             # Init model with random hyperparameters
-            hp_dict = dict(
-                latent_dim_inv = latent_dim - latent_dim_noise, 
-                latent_dim_spur = latent_dim_noise,
-                n_layers = n_layers_x,
-                hidden_dim = hidden_dim_x,
-                activation = activation, 
-                device = device, 
-                normalize_constant = normalize_constant,
-                fix_mean_spur_prior = args.fix_mean_prior,
-                fix_var_spur_prior = args.fix_var_prior,
-                decoder_dist = args.decoder_dist,
-                batch_norm = args.use_bn,
-                tc_beta = tc_beta,
-                dropout_rate = 0.1,
-                batch_size = args.batch_size,
-                reg_sm = score_matching_weight,
-                output_dim_prior_nn = output_dim_prior_nn,
-                hidden_dim_prior =  hidden_dim_prior,
-                n_layers_prior =  n_layers_prior,
-                inject_covar_in_latent = False,
-            )
-        elif args.model == 'f_invae':
-            if args.latent_dim_noise_fixed < 0:
-                latent_dim_noise = np.random.randint(1, int(latent_dim/5))
+            lr_train = 10**np.random.uniform(-5, -2)
+
+            weight_decay = 10**np.random.uniform(-6, -3)
+
+            # Generate combinations of hyperparameters
+            if args.latent_dim_fixed < 0:
+                latent_dim = np.random.choice([10, 20, 30, 40, 50])
             else:
-                latent_dim_noise = args.latent_dim_noise_fixed
+                latent_dim = args.latent_dim_fixed
+            
+            if args.hidden_dim < 0:
+                hidden_dim_x = int(2**np.random.uniform(6, 10))
+            else:
+                hidden_dim_x = args.hidden_dim
 
-            hp_dict = dict(
-                latent_dim_inv = latent_dim - latent_dim_noise, 
-                latent_dim_spur = latent_dim_noise,
-                n_layers = n_layers_x,
-                hidden_dim = hidden_dim_x,
-                activation = activation, 
-                device = device,  
-                fix_mean_spur_prior = args.fix_mean_prior,
-                fix_var_spur_prior = args.fix_var_prior,
-                decoder_dist = args.decoder_dist,
-                batch_norm = args.use_bn,
-                tc_beta = tc_beta,
-                kl_rate = args.beta,
-                dropout_rate = 0.1,
-                batch_size = args.batch_size,
-                inject_covar_in_latent = False,
-                elbo_version = 'sample',
-            )
+            if args.n_layers < 0:
+                n_layers_x = np.random.randint(2, 5)
+            else:
+                n_layers_x  = args.n_layers
 
-        # Init model with random hyperparameters
-        if args.model == 'nf_invae':
-            if args.load_checkpoint_path == '':
+            if args.activation == '':
+                activation = np.random.choice(['lrelu', 'relu'])
+            else:
+                activation = args.activation
+
+            # Think of normalizing constant as a HP for prior importance, i.e. upweighting the Score Matching part
+            # and then dividing by it to keep in reasonable range
+            if args.no_norm_const:
+                normalize_constant = 1
+            elif args.norm_constant <= 0:
+                normalize_constant = 10**np.random.uniform(1, 5)
+            else:
+                normalize_constant = args.norm_constant
+            
+            if args.model == 'nf_invae':
+                if args.latent_dim_noise_fixed < 0:
+                    latent_dim_noise = np.random.randint(1, int(latent_dim/5))
+                else:
+                    latent_dim_noise = args.latent_dim_noise_fixed
+
+                # Weight for regularized score matching (50% of the times = 0)
+                sm_non_zero_weight = 10**np.random.uniform(-4, -2)
+                score_matching_weight = np.random.choice([0, sm_non_zero_weight])
+
+                output_dim_prior_nn = np.random.randint(4*latent_dim, 6*latent_dim) #np.random.choice([40, 50, 60])
+                hidden_dim_prior = output_dim_prior_nn + np.random.randint(1, 2*latent_dim) #np.random.choice([80, 100, 120])
+                n_layers_prior = np.random.choice([2, 3])
+                
+                # Init model with random hyperparameters
+                hp_dict = dict(
+                    latent_dim_inv = latent_dim - latent_dim_noise, 
+                    latent_dim_spur = latent_dim_noise,
+                    n_layers = n_layers_x,
+                    hidden_dim = hidden_dim_x,
+                    activation = activation, 
+                    device = device, 
+                    normalize_constant = normalize_constant,
+                    fix_mean_spur_prior = args.fix_mean_prior,
+                    fix_var_spur_prior = args.fix_var_prior,
+                    decoder_dist = args.decoder_dist,
+                    batch_norm = args.use_bn,
+                    tc_beta = tc_beta,
+                    dropout_rate = 0.1,
+                    batch_size = args.batch_size,
+                    reg_sm = score_matching_weight,
+                    output_dim_prior_nn = output_dim_prior_nn,
+                    hidden_dim_prior =  hidden_dim_prior,
+                    n_layers_prior =  n_layers_prior,
+                    inject_covar_in_latent = False,
+                )
+
                 model = NFinVAE(
                     adata_train,
                     layer = args.use_layer,
@@ -287,8 +273,40 @@ for tc_beta in tc_list:
                     spur_covar_keys = spur_covar_keys,
                     **hp_dict
                 )
-            else:
-                #TODO test model loading
+            elif args.model == 'f_invae':
+                if args.latent_dim_noise_fixed < 0:
+                    latent_dim_noise = np.random.randint(1, int(latent_dim/5))
+                else:
+                    latent_dim_noise = args.latent_dim_noise_fixed
+
+                hp_dict = dict(
+                    latent_dim_inv = latent_dim - latent_dim_noise, 
+                    latent_dim_spur = latent_dim_noise,
+                    n_layers = n_layers_x,
+                    hidden_dim = hidden_dim_x,
+                    activation = activation, 
+                    device = device,  
+                    fix_mean_spur_prior = args.fix_mean_prior,
+                    fix_var_spur_prior = args.fix_var_prior,
+                    decoder_dist = args.decoder_dist,
+                    batch_norm = args.use_bn,
+                    tc_beta = tc_beta,
+                    kl_rate = args.beta,
+                    dropout_rate = 0.1,
+                    batch_size = args.batch_size,
+                    inject_covar_in_latent = False,
+                    elbo_version = 'sample',
+                )
+
+                model = FinVAE(
+                    adata_train,
+                    layer = args.use_layer,
+                    inv_covar_keys = inv_covar_keys,
+                    spur_covar_keys = spur_covar_keys,
+                    **hp_dict
+                )
+        elif args.load_checkpoint_path != '':
+            if args.model == 'nf_invae':
                 checkpoint_model = torch.load(args.load_checkpoint_path, map_location=device)
 
                 model = NFinVAE(
@@ -302,16 +320,7 @@ for tc_beta in tc_list:
                 model.module.load_state_dict(checkpoint_model['model_state_dict'])
 
                 hp_dict = checkpoint_model['hyperparameters']
-        elif args.model == 'f_invae':
-            if args.load_checkpoint_path == '':
-                model = FinVAE(
-                    adata_train,
-                    layer = args.use_layer,
-                    inv_covar_keys = inv_covar_keys,
-                    spur_covar_keys = spur_covar_keys,
-                    **hp_dict
-                )
-            else:
+            elif args.model == 'f_invae':
                 checkpoint_model = torch.load(args.load_checkpoint_path, map_location=device)
 
                 model = FinVAE(
@@ -325,9 +334,39 @@ for tc_beta in tc_list:
                 model.module.load_state_dict(checkpoint_model['model_state_dict'])
 
                 hp_dict = checkpoint_model['hyperparameters']
-        else:
-            raise ValueError(f'{args.model} is not a valid model!')
-        
+            else:
+                raise ValueError(f'{args.model} is not a valid model!')
+        elif args.load_hps_path != '':
+            checkpoint_model = torch.load(args.load_hps_path, map_location=device)
+            hp_dict = checkpoint_model['hyperparameters']
+
+            if args.model == 'nf_invae':
+                model = NFinVAE(
+                    adata_train,
+                    layer = args.use_layer,
+                    inv_covar_keys = inv_covar_keys,
+                    spur_covar_keys = spur_covar_keys,
+                    **hp_dict
+                )
+            elif args.model == 'f_invae':
+                model = FinVAE(
+                    adata_train,
+                    layer = args.use_layer,
+                    inv_covar_keys = inv_covar_keys,
+                    spur_covar_keys = spur_covar_keys,
+                    **hp_dict
+                )
+            else:
+                raise ValueError(f'{args.model} is not a valid model!')
+             
+        if (args.load_checkpoint_path != '') or (args.load_hps_path != ''):
+            lr_train = hp_dict['lr_train']
+            weight_decay = hp_dict['weight_decay']
+            args.n_epochs_phase_1 = hp_dict['n_epochs_phase_1']
+
+            args.n_epochs_opt_val = hp_dict['n_epochs_opt_val']
+            args.n_samples_val_label_match = hp_dict['n_samples_val_label_match']
+
         n_epochs = args.n_epochs_phase_1
 
         model.train(
@@ -427,14 +466,13 @@ for tc_beta in tc_list:
         if args.test_acc:
             hp_dict['test_acc'] = test_acc if not np.isnan(train_loss) else 0
         
-        if args.load_checkpoint_path == '':
-            save_path = f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_tc_beta_{tc_beta}_checkpoint_end_training.pth'
+        save_path = f'./outputs/{args.model}/multiome/{experiment_id}_{exp_id}_tc_beta_{tc_beta}_checkpoint_end_training.pth'
                         
-            torch.save({
-                'epoch': args.n_epochs_phase_1,
-                'model_state_dict': model.module.state_dict(),
-                'hyperparameters': hp_dict
-            }, save_path)
+        torch.save({
+            'epoch': args.n_epochs_phase_1,
+            'model_state_dict': model.module.state_dict(),
+            'hyperparameters': hp_dict
+        }, save_path)
 
         output_dt = pd.DataFrame([hp_dict])
         experiments_dt = pd.concat([experiments_dt, output_dt], ignore_index=True)
