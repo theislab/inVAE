@@ -23,6 +23,7 @@ class FinVAEmodule(nn.Module):
         fix_var_prior: bool = False,
         decoder_dist: Literal['normal', 'nb'] = 'nb',
         batch_norm: bool = True,
+        batch_norm_prior: bool = False,
         dropout_rate: float = 0.0,
         kl_rate: float = 1.0,
         tc_beta: float = 0.0,
@@ -129,7 +130,7 @@ class FinVAEmodule(nn.Module):
                     activation=activation, 
                     slope=slope, 
                     device=device,
-                    batch_norm=batch_norm,
+                    batch_norm=batch_norm_prior,
                     dropout_rate=dropout_rate
                 ).to(device)
             else:
@@ -143,7 +144,7 @@ class FinVAEmodule(nn.Module):
                     activation=activation, 
                     slope=slope, 
                     device=device, 
-                    batch_norm=batch_norm,
+                    batch_norm=batch_norm_prior,
                     dropout_rate=dropout_rate
                 ).to(device)
             elif not inject_covar_in_latent:
@@ -160,7 +161,7 @@ class FinVAEmodule(nn.Module):
                     activation=activation, 
                     slope=slope, 
                     device=device,
-                    batch_norm=batch_norm,
+                    batch_norm=batch_norm_prior,
                     dropout_rate=dropout_rate
                 ).to(device)
             else:
@@ -175,7 +176,7 @@ class FinVAEmodule(nn.Module):
                     activation=activation, 
                     slope=slope, 
                     device=device, 
-                    batch_norm=batch_norm,
+                    batch_norm=batch_norm_prior,
                     dropout_rate=dropout_rate
                 ).to(device)
             elif not inject_covar_in_latent:
@@ -202,7 +203,7 @@ class FinVAEmodule(nn.Module):
                     slope=slope, 
                     device=device, 
                     end_with_act=True, 
-                    batch_norm=batch_norm,
+                    batch_norm=batch_norm_prior,
                     dropout_rate=dropout_rate
                 ).to(device)
 
@@ -223,7 +224,7 @@ class FinVAEmodule(nn.Module):
                     slope=slope, 
                     device=device, 
                     end_with_act=True, 
-                    batch_norm=batch_norm,
+                    batch_norm=batch_norm_prior,
                     dropout_rate=dropout_rate
                 ).to(device)
 
