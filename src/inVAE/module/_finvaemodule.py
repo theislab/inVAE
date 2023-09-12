@@ -296,6 +296,9 @@ class FinVAEmodule(nn.Module):
 
         self.logv = nn.Linear(hidden_dim, self.latent_dim, device=self.device)
 
+        # Current kl term beta and tc loss beta for warm-up
+        self._training_hps = [self.beta, self.tc_beta]
+
         self.apply(weights_init)
 
     def encode(self, x, inv_covar, spur_covar):
@@ -447,11 +450,20 @@ class FinVAEmodule(nn.Module):
 
             return decoder_mean, decoder_theta, encoder_params, z, prior_params_mean, prior_params_var
     
+    def warm_up(self, iteration):
+        if self.warm_up_iters > 0:
+            beta = min(1, iteration/self.warm_up_iters) * self.beta
+            tc_beta = min(1, iteration/self.warm_up_iters) * self.tc_beta
+            self._training_hps = [beta, tc_beta]
+
     def elbo(self, x, inv_covar, spur_covar, dataset_size=None):
         batch_size = x.shape[0]
 
         if self.tc_beta > 0 and dataset_size is None:
             raise ValueError('Dataset_size not given to elbo function, can not calculate Total Correlation loss part!')
+
+        # Warm-up for kl term and tc loss
+        beta, tc_beta = self._training_hps
         
         if self.decoder_dist == 'normal':
             decoder_params, (g, v), z, prior_params_mean, prior_params_var = self.forward(x, inv_covar, spur_covar)
@@ -487,11 +499,11 @@ class FinVAEmodule(nn.Module):
 
                 return (
                     log_px_z + 
-                    self.beta * (log_pzi_d + log_pzs_e - log_qz_xde) -
-                    self.tc_beta * (logqz - logqz_prodmarginals)
+                    beta * (log_pzi_d + log_pzs_e - log_qz_xde) -
+                    tc_beta * (logqz - logqz_prodmarginals)
                 ).mean(), z
             else:
-                return (log_px_z + self.beta * (log_pzi_d + log_pzs_e - log_qz_xde)).mean(), z
+                return (log_px_z + beta * (log_pzi_d + log_pzs_e - log_qz_xde)).mean(), z
         elif self.elbo_version == 'kl_div':
             if torch.any(torch.isnan(g)) or torch.any(torch.isnan(v)):
                 return torch.tensor(float('nan')), z
@@ -529,4 +541,4 @@ class FinVAEmodule(nn.Module):
             kl_div = dist.kl_divergence(qz_xde, pz_de).sum(dim=1)
 
             # loss
-            return (log_px_z - self.beta * kl_div).mean(), z
+            return (log_px_z - beta * kl_div).mean(), z

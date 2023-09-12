@@ -421,6 +421,9 @@ class NFinVAEmodule(nn.Module):
         z = self.reparameterize(latent_mean, latent_logvar)
 
         return z
+    
+    def warm_up(self, iteration):
+        pass
 
     def elbo(self, x, inv_covar, spur_covar, dataset_size=None):
         batch_size = x.shape[0]

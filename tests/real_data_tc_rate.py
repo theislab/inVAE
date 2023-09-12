@@ -45,9 +45,9 @@ parser.add_argument('--debug', action='store_true')#, default=True)
 parser.add_argument('--track_execution_time', action='store_true')
 
 ## Model HP -----------------------------------------------------------------------
-parser.add_argument('--n_epochs_phase_1', type=int, default=50)
+parser.add_argument('--n_epochs_phase_1', type=int, default=400)
 # If -1 -> random latent dim; otherwise fixed to given positive value
-parser.add_argument('--latent_dim_fixed', type=int, default=-1)
+parser.add_argument('--latent_dim_fixed', type=int, default=10)
 # Changes distribution of the decoder: ['nb', 'normal']
 parser.add_argument('--decoder_dist', default='nb')
 parser.add_argument('--no_norm_const', action='store_true')#, default=True)
@@ -64,6 +64,7 @@ parser.add_argument('--use_bn', action='store_true', default=True)
 parser.add_argument('--latent_dim_noise_fixed', type=int, default=-1)
 # Hyperparameter for the weight of the KL-divergence
 parser.add_argument('--beta', type=float, default=1.0)
+parser.add_argument('--warm_up_epochs', type=int, default=40)
 # Which ELBO version? (['kl_div', 'sample'])
 parser.add_argument('--elbo_version', default='sample')
 
@@ -72,8 +73,8 @@ parser.add_argument('--fix_mean_prior', action='store_true', default=True)
 parser.add_argument('--fix_var_prior', action='store_true')
 
 # Classifier args
-parser.add_argument('--n_samples_val_label_match', type=int, default=1000)
-parser.add_argument('--n_epochs_opt_val', type=int, default=50)
+parser.add_argument('--n_samples_val_label_match', type=int, default=100)
+parser.add_argument('--n_epochs_opt_val', type=int, default=10)
 parser.add_argument('--test_acc', action='store_true')
 
 # Which tc beta to start with?
@@ -174,7 +175,7 @@ if args.dataset == 'multiome':
 experiments_dt = pd.DataFrame()
 
 if (args.load_hps_path == '') and (args.load_checkpoint_path == ''):
-    tc_list = list(range(args.start_tc_beta, args.end_tc_beta + 1, 2)) if not args.debug else [1]
+    tc_list = list(range(args.start_tc_beta, args.end_tc_beta + 1, 1)) if not args.debug else [1]
 else:
     if args.load_hps_path != '':
         checkpoint_model = torch.load(args.load_hps_path, map_location=device)
@@ -362,6 +363,7 @@ for tc_beta in tc_list:
         if (args.load_checkpoint_path != '') or (args.load_hps_path != ''):
             lr_train = hp_dict['lr_train']
             weight_decay = hp_dict['weight_decay']
+            args.warm_up_epochs = hp_dict['warm_up_epochs']
             args.n_epochs_phase_1 = hp_dict['n_epochs_phase_1']
 
             args.n_epochs_opt_val = hp_dict['n_epochs_opt_val']
@@ -375,6 +377,9 @@ for tc_beta in tc_list:
             weight_decay = weight_decay,
             use_lr_schedule = True,
             lr_scheduler_patience = 30,
+            log_dir = f'./outputs/results_tc_beta/{experiment_id}_{tc_beta}_{exp_id}',
+            log_freq = 10,
+            warm_up_epochs = args.warm_up_epochs if args.model == 'f_invae' else 0
         )
         
         ## Save a figure of the latent space colored by batch or cell type
@@ -450,6 +455,7 @@ for tc_beta in tc_list:
 
         hp_dict['lr_train'] = lr_train
         hp_dict['weight_decay'] = weight_decay
+        hp_dict['warm_up_epochs'] = args.warm_up_epochs if args.model == 'f_invae' else 0
 
         hp_dict['n_epochs_phase_1'] = args.n_epochs_phase_1
 

@@ -416,6 +416,7 @@ class inVAE(ABC):
         n_checkpoints: int = 0,
         use_lr_schedule: bool = False,
         lr_scheduler_patience: int = 50,
+        warm_up_epochs: int = 0,
     ):
         if n_epochs is None:
             n_epochs = 500
@@ -431,6 +432,7 @@ class inVAE(ABC):
         self.module = self.module.float()
 
         optimizer = optim.Adam(self.module.parameters(), lr = lr_train, weight_decay = weight_decay)
+
         if use_lr_schedule:
             scheduler = ReduceLROnPlateau(optimizer, 'min', patience=lr_scheduler_patience, verbose=True)
 
@@ -440,6 +442,8 @@ class inVAE(ABC):
 
         max_iter = len(self.data_loader) * n_epochs
         dataset_size = self.adata.n_obs
+        self.warm_up_epochs = warm_up_epochs
+        self.module.warm_up_iters = warm_up_epochs * len(self.data_loader)
 
         if print_every_n_epochs is None:
             print_every_n_iters = max_iter / 5
@@ -473,6 +477,8 @@ class inVAE(ABC):
 
                 optimizer.zero_grad(set_to_none=True)
 
+                # Warm up for kl term beta and tc loss beta (if model params are set to use them)
+                self.module.warm_up(iteration)
                 objective_fct, _ = self.module.elbo(x, inv_covar, spur_covar, dataset_size)
 
                 objective_fct.mul(-1).backward()
@@ -482,9 +488,9 @@ class inVAE(ABC):
                 loss_epoch += temp_loss
                 
                 if (log_dir is not None) and (iteration % log_freq == 0):
-                    writer.add_scalar('train_loss', temp_loss, iteration)
+                    writer.add_scalar('train_loss/full_loss', temp_loss, iteration)
 
-            if use_lr_schedule:
+            if use_lr_schedule and (iteration > self.module.warm_up_iters):
                 loss_epoch /= len(self.data_loader)
                 scheduler.step(loss_epoch)
 
