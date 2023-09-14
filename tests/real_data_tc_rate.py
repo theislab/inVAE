@@ -379,7 +379,7 @@ for tc_beta in tc_list:
             lr_scheduler_patience = 30,
             log_dir = f'./outputs/results_tc_beta/{experiment_id}_{tc_beta}_{exp_id}',
             log_freq = 10,
-            warm_up_epochs = args.warm_up_epochs if args.model == 'f_invae' else 0
+            warm_up_epochs = args.warm_up_epochs
         )
         
         ## Save a figure of the latent space colored by batch or cell type
@@ -455,7 +455,7 @@ for tc_beta in tc_list:
 
         hp_dict['lr_train'] = lr_train
         hp_dict['weight_decay'] = weight_decay
-        hp_dict['warm_up_epochs'] = args.warm_up_epochs if args.model == 'f_invae' else 0
+        hp_dict['warm_up_epochs'] = args.warm_up_epochs
 
         hp_dict['n_epochs_phase_1'] = args.n_epochs_phase_1
 
