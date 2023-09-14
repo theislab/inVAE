@@ -265,6 +265,10 @@ class NFinVAEmodule(nn.Module):
             self.prior_mean_spur = None
             self.logl_spur = None
 
+        # Current kl term beta and tc loss beta for warm-up (set kl beta to 1 for now)
+        self.beta = 1
+        self._training_hps = [self.beta, self.tc_beta]
+
         # Init every linear layer with xavier uniform
         self.apply(weights_init)
 
@@ -423,13 +427,19 @@ class NFinVAEmodule(nn.Module):
         return z
     
     def warm_up(self, iteration):
-        pass
+        if self.warm_up_iters > 0:
+            beta = min(1, iteration/self.warm_up_iters) * self.beta
+            tc_beta = min(1, iteration/self.warm_up_iters) * self.tc_beta
+            self._training_hps = [beta, tc_beta]
 
     def elbo(self, x, inv_covar, spur_covar, dataset_size=None):
         batch_size = x.shape[0]
 
         if self.tc_beta > 0 and dataset_size is None:
             raise ValueError('Dataset_size not given to elbo function, can not calculate Total Correlation loss part!')
+        
+        # Warm-up for kl term and tc loss
+        beta, tc_beta = self._training_hps
         
         if self.decoder_dist == 'normal':
             decoder_mean, latent_mean, latent_logvar, z = self.forward(x, inv_covar, spur_covar)
@@ -512,15 +522,15 @@ class NFinVAEmodule(nn.Module):
             objective_function = (
                 (
                     log_px_z + 
-                    log_pz_d_inv_copy + log_pz_e_spur - log_qz_xde -
-                    self.tc_beta * (logqz - logqz_prodmarginals)
+                    beta * (log_pz_d_inv_copy + log_pz_e_spur - log_qz_xde) -
+                    tc_beta * (logqz - logqz_prodmarginals)
                 ).mean().div(self.normalize_constant) -
-                sm_part
+                beta * sm_part
             )
         else:
             objective_function = (
-                (log_px_z + log_pz_d_inv_copy + log_pz_e_spur - log_qz_xde).mean().div(self.normalize_constant)   - 
-                sm_part
+                (log_px_z + beta * (log_pz_d_inv_copy + log_pz_e_spur - log_qz_xde)).mean().div(self.normalize_constant)   - 
+                beta * sm_part
             )
 
         return objective_function, z
