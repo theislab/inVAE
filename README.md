@@ -15,6 +15,7 @@ inVAE incorporates biological covariates and mechanisms such as disease states, 
 
 2. Development Version (latest version on github) <br/>
 ```git clone https://github.com/theislab/inVAE.git```<br/>
+```cd inVAE```<br/>
 ```pip install .```<br/>
 
 ## Example
