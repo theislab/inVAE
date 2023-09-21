@@ -1,4 +1,5 @@
 from typing import List, Literal, Optional, Dict
+import itertools
 
 import time
 import numpy as np
@@ -174,6 +175,7 @@ class inVAE(ABC):
                 label_tensor_test = torch.tensor(encoder_label.transform(adata.obs[self.label_key]), device = self.device)
 
                 nr_samples = self.optimize_latent_dict['nr_samples']
+                sample_uniform_per_label = self.optimize_latent_dict['sample_uniform_per_label']
                 
                 # Covariates for invariate prior
                 inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
@@ -184,13 +186,18 @@ class inVAE(ABC):
                 spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
                 # sampling and optimizing latent for test
-                init_z_test = self._sample_latents_for_prediction(
+                init_z_test, test_acc_label_match = self._sample_latents_for_prediction(
                     x = x_test,
                     latent_sample = latent_train,
                     nr_samples = nr_samples,
+                    labels_x = adata.obs[self.label_key].tolist(),
+                    labels_sample = self.adata.obs[self.label_key].tolist(),
                     inv_covar = inv_covar,
-                    spur_covar = spur_covar
+                    spur_covar = spur_covar,
+                    sample_uniform_per_label = sample_uniform_per_label
                 )
+
+                self.saved_metrics['test_acc_label_match'] = test_acc_label_match
 
                 final_z_test, _ = self._optimize_latents_for_prediction(
                     x = x_test, # dim: nr_obs_test x genes
@@ -225,7 +232,8 @@ class inVAE(ABC):
         lr_train_class: float = 0.01,
         lr_opt_val: float = 0.001,
         class_print_every_n_epochs: int = None,
-        opt_val_print_every_n_epochs: int = None
+        opt_val_print_every_n_epochs: int = None,
+        sample_uniform_per_label: bool = False
     ):
         # Save batch and label_key
         self.batch_key = batch_key
@@ -285,13 +293,18 @@ class inVAE(ABC):
         print('Starting sampling of latents for the val data...')
         
         # Initialzing latent samples for val data via samples of training data
-        init_z = self._sample_latents_for_prediction(
+        init_z, val_acc_label_match = self._sample_latents_for_prediction(
             x = x_val,
             latent_sample = latent_sample,
             nr_samples = nr_samples,
+            labels_x = adata_val.obs[self.label_key].tolist(),
+            labels_sample = self.adata.obs[self.label_key].tolist(),
             inv_covar = inv_covar_val,
-            spur_covar = spur_covar_val
+            spur_covar = spur_covar_val,
+            sample_uniform_per_label = sample_uniform_per_label
         )
+
+        self.saved_metrics = {'val_acc_label_match': val_acc_label_match}
 
         print('Sampling done!')
 
@@ -376,7 +389,8 @@ class inVAE(ABC):
         self.optimize_latent_dict = {
             'lr_opt_val': lr_opt_val,
             'n_epochs_opt_val': n_epochs_opt_val,
-            'nr_samples': nr_samples
+            'nr_samples': nr_samples,
+            'sample_uniform_per_label': sample_uniform_per_label
         }
 
         print('Starting to optimize sampled latents for validation data...')
@@ -491,8 +505,7 @@ class inVAE(ABC):
                     writer.add_scalar('train_loss/full_loss', temp_loss, iteration)
 
             if use_lr_schedule and (iteration > self.module.warm_up_iters):
-                loss_epoch /= len(self.data_loader)
-                scheduler.step(loss_epoch)
+                scheduler.step(loss_epoch / len(self.data_loader))
 
             end = time.time()
 
@@ -577,28 +590,49 @@ class inVAE(ABC):
         x: torch.Tensor, # dim: nr_obs x genes
         latent_sample: torch.Tensor, # dim: nr_obs_train x latent_dim
         nr_samples: int = 100,
+        labels_x: list = None, # dim: nr_obs x genes
+        labels_sample: list = None, # dim: nr_obs_train x latent_dim
         inv_covar: torch.Tensor = None,
         spur_covar: torch.Tensor = None,
+        sample_uniform_per_label: bool = False,
     ):
         # Storing the initially sampled z
         init_z = torch.zeros([x.shape[0], latent_sample.shape[1]], device=self.device)
 
+        # Store acc of label match
+        if labels_x is not None and labels_sample is not None:
+            acc_label_match = 0
+
         # For every cell in the data (i.e. with x the corresponding gene counts) sample from the latent space of the training data (i.e. from latent_sample)
         # to get a latent representation for that sample that closely matches the gene count data in x (highest decoder density of x and z)
         for index_val_example in range(init_z.shape[0]):
-            sample_ind = np.random.choice(latent_sample.shape[0], nr_samples, replace = False)
+            if sample_uniform_per_label:
+                labels_unique, counts_unique = np.unique(labels_sample, return_counts=True)
+
+                ind_tmp = [
+                    list(
+                        np.random.choice(
+                            [i for i, label_ in enumerate(labels_sample) if label == label_], 
+                            min(nr_samples, counts), 
+                            replace = False
+                        )
+                    ) for label, counts in zip(labels_unique, counts_unique)
+                ]
+                sample_ind = list(itertools.chain.from_iterable(ind_tmp))
+            else:
+                sample_ind = np.random.choice(latent_sample.shape[0], nr_samples, replace = False)
 
             single_train_z = latent_sample[sample_ind]
 
             x_tmp, z_tmp = (
-                x[index_val_example].expand(nr_samples, -1).to(self.device),
+                x[index_val_example].expand(single_train_z.shape[0], -1).to(self.device),
                 # Shape: nr_samples x latent_dim
                 single_train_z.to(self.device)    
             )
 
             if self.module.inject_covar_in_latent:
                 spur_tmp = (
-                    spur_covar[index_val_example].expand(nr_samples, -1)
+                    spur_covar[index_val_example].expand(single_train_z.shape[0], -1)
                 )
 
             if self.module.inject_covar_in_latent:
@@ -606,9 +640,16 @@ class inVAE(ABC):
             else:
                 log_px_z = self.module.get_log_decoder_density(x_tmp, z_tmp.view(-1, self.latent_dim))
 
-            init_z[index_val_example] = single_train_z[torch.argmax(log_px_z).view(-1)]
+            best_z_ind = torch.argmax(log_px_z).view(-1)
+            init_z[index_val_example] = single_train_z[best_z_ind]
+            
+            if labels_x is not None and labels_sample is not None:
+                acc_label_match += int(labels_x[index_val_example] == labels_sample[sample_ind[best_z_ind]])
 
-        return init_z
+        if labels_x is not None and labels_sample is not None:
+            acc_label_match /= x.shape[0]
+
+        return init_z, acc_label_match
 
     @staticmethod
     def check_data(

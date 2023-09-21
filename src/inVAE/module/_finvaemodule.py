@@ -494,13 +494,17 @@ class FinVAEmodule(nn.Module):
                 )
 
                 # minibatch weighted sampling
-                logqz_prodmarginals = (torch.logsumexp(_logqz, dim=1, keepdim=False) - math.log(batch_size * dataset_size)).sum(1)
+                #logqz_prodmarginals = (torch.logsumexp(_logqz, dim=1, keepdim=False) - math.log(batch_size * dataset_size)).sum(1)
                 logqz = (torch.logsumexp(_logqz.sum(2), dim=1, keepdim=False) - math.log(batch_size * dataset_size))
+                logqz_inv = (torch.logsumexp(_logqz[:,:,:self.latent_dim_inv].sum(2), dim=1, keepdim=False) - math.log(batch_size * dataset_size))
+                logqz_spur = (torch.logsumexp(_logqz[:,:,self.latent_dim_inv:].sum(2), dim=1, keepdim=False) - math.log(batch_size * dataset_size))
+
+                #print(f'The tc loss is {(tc_beta * (logqz - logqz_inv - logqz_spur)).mean().item()}')
 
                 return (
                     log_px_z + 
                     beta * (log_pzi_d + log_pzs_e - log_qz_xde) -
-                    tc_beta * (logqz - logqz_prodmarginals)
+                    tc_beta * (logqz - logqz_inv - logqz_spur)
                 ).mean(), z
             else:
                 return (log_px_z + beta * (log_pzi_d + log_pzs_e - log_qz_xde)).mean(), z
