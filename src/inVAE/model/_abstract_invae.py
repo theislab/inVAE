@@ -199,17 +199,21 @@ class inVAE(ABC):
 
                 self.saved_metrics['test_acc_label_match'] = test_acc_label_match
 
-                final_z_test, _ = self._optimize_latents_for_prediction(
-                    x = x_test, # dim: nr_obs_test x genes
-                    init_z = init_z_test, # dim: nr_obs_test x latent_dim
-                    label_tensor = label_tensor_test, # dim: nr_obs_test x 1
-                    inv_covar = inv_covar,
-                    spur_covar = spur_covar
-                )
+                if self.optimize_latent_dict['n_epochs_opt_val'] > 0:
+                    final_z_test, _ = self._optimize_latents_for_prediction(
+                        x = x_test, # dim: nr_obs_test x genes
+                        init_z = init_z_test, # dim: nr_obs_test x latent_dim
+                        label_tensor = label_tensor_test, # dim: nr_obs_test x 1
+                        inv_covar = inv_covar,
+                        spur_covar = spur_covar
+                    )
 
-                self.saved_latent['test'] = final_z_test.clone()
+                    self.saved_latent['test'] = final_z_test.clone()
 
-                sampled_latent_inv_test = final_z_test[:, :self.latent_dim_inv]
+                    sampled_latent_inv_test = final_z_test[:, :self.latent_dim_inv]
+                else:
+                    self.saved_latent['test'] = init_z_test.clone()
+                    sampled_latent_inv_test = init_z_test[:, :self.latent_dim_inv]
             
             prediction = self.classifier(sampled_latent_inv_test)
 
@@ -224,7 +228,7 @@ class inVAE(ABC):
         batch_key: Optional[str] = None,
         label_key: Optional[str] = None,
         n_epochs_train_class: int = 500,
-        n_epochs_opt_val: int = 100,
+        n_epochs_opt_val: int = 0,
         nr_samples: int = 100,
         hidden_dim_class: int = 50,
         n_layers_class: int = 1,
@@ -305,6 +309,7 @@ class inVAE(ABC):
         )
 
         self.saved_metrics = {'val_acc_label_match': val_acc_label_match}
+        self.saved_latent['val'] = init_z.clone()
 
         print('Sampling done!')
 
@@ -384,39 +389,38 @@ class inVAE(ABC):
 
         print(f'\tThe val acc before optimizing the latents is: {acc_val:.3f}')
 
-        acc_array = np.zeros([n_epochs_opt_val])
-
         self.optimize_latent_dict = {
             'lr_opt_val': lr_opt_val,
             'n_epochs_opt_val': n_epochs_opt_val,
             'nr_samples': nr_samples,
             'sample_uniform_per_label': sample_uniform_per_label
         }
-
-        print('Starting to optimize sampled latents for validation data...')
-
-        # Optimize latents for val data (see function description)
-
-        final_z, acc_array = self._optimize_latents_for_prediction(
-            x = x_val, # dim: nr_obs_val x genes
-            init_z = init_z, # dim: nr_obs_val x latent_dim
-            label_tensor = label_tensor_val, # dim: nr_obs_val x 1
-            inv_covar = inv_covar_val,
-            spur_covar = spur_covar_val
-        )
-
-        self.saved_latent['val'] = final_z.clone()
-                    
-        print('Optimizing latents for validation data done!')
         
-        assert len(final_z) == nr_val_obs
+        if n_epochs_opt_val > 0:
+            print('Starting to optimize sampled latents for validation data...')
 
-        acc_array = acc_array / nr_val_obs
+            # Optimize latents for val data (see function description)
 
-        for i in range(0, n_epochs_opt_val, opt_val_print_every_n_epochs):
-            print(f'\tThe val acc after optimizing {i+1}/{n_epochs_opt_val} is: {acc_array[i]:.3f}')
+            final_z, acc_array = self._optimize_latents_for_prediction(
+                x = x_val, # dim: nr_obs_val x genes
+                init_z = init_z, # dim: nr_obs_val x latent_dim
+                label_tensor = label_tensor_val, # dim: nr_obs_val x 1
+                inv_covar = inv_covar_val,
+                spur_covar = spur_covar_val
+            )
+
+            self.saved_latent['val'] = final_z.clone()
+                        
+            print('Optimizing latents for validation data done!')
             
-        print(f'\tThe val acc after optimizing the latents is: {acc_array[(n_epochs_opt_val - 1)]:.3f}')
+            assert len(final_z) == nr_val_obs
+
+            acc_array = acc_array / nr_val_obs
+
+            for i in range(0, n_epochs_opt_val, opt_val_print_every_n_epochs):
+                print(f'\tThe val acc after optimizing {i+1}/{n_epochs_opt_val} is: {acc_array[i]:.3f}')
+                
+            print(f'\tThe val acc after optimizing the latents is: {acc_array[(n_epochs_opt_val - 1)]:.3f}')
 
     def train(
         self,
@@ -620,7 +624,7 @@ class inVAE(ABC):
                 ]
                 sample_ind = list(itertools.chain.from_iterable(ind_tmp))
             else:
-                sample_ind = np.random.choice(latent_sample.shape[0], nr_samples, replace = False)
+                sample_ind = np.random.choice(latent_sample.shape[0], min(nr_samples, latent_sample.shape[0]), replace = False)
 
             single_train_z = latent_sample[sample_ind]
 
