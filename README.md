@@ -46,11 +46,16 @@ model = FinVAE(
     adata = adata_train,
     layer = 'counts', # The layer where the raw counts are stored in adata (None for adata.X: default)
     inv_covar_keys = inv_covar_keys,
-    spur_covar_keys = spur_covar_keys
+    spur_covar_keys = spur_covar_keys,
+    latent_dim_inv = 20, 
+    latent_dim_spur = 5,
+    device = 'cpu' 
 )
 ```
 
-or <br/>
+Set `inject_covar_in_latent= True` if you wish to add the spurious conditions directly to the latent (instead of learning the spurious latents). This gives you the most compatible version to SCVI. 
+
+For non-factorized model, use: <br/>
 
 ``` 
 model = NFinVAE(
