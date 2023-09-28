@@ -49,7 +49,8 @@ model = FinVAE(
     spur_covar_keys = spur_covar_keys,
     latent_dim_inv = 20, 
     latent_dim_spur = 5,
-    device = 'cpu' 
+    device = 'cpu',
+    decoder_dist = 'nb'
 )
 ```
 
@@ -62,7 +63,11 @@ model = NFinVAE(
     adata = adata_train,
     layer = 'counts', # The layer where the raw counts are stored in adata (None for adata.X: default)
     inv_covar_keys = inv_covar_keys,
-    spur_covar_keys = spur_covar_keys
+    spur_covar_keys = spur_covar_keys,
+    latent_dim_inv = 20, 
+    latent_dim_spur = 5,
+    device = 'cpu',
+    decoder_dist = 'nb'
 )
 ```
 
