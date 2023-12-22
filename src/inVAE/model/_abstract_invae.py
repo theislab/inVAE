@@ -18,7 +18,7 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from abc import ABC, abstractmethod
 from anndata import AnnData
 
-from ..utils import check_nonnegative_integers, ModularMultiClassifier
+from ..utils import check_nonnegative_integers, ModularMultiClassifier, EarlyStopper
 
 class inVAE(ABC):
 
@@ -90,6 +90,7 @@ class inVAE(ABC):
         adata: Optional[AnnData] = None,
         latent_type: Literal['full', 'invariant', 'inv', 'spurious', 'spur'] = 'invariant',
         verbose: bool = True,
+        batch_size: Optional[int] = None, # defaults to self.batch_size (always in the case of adata=None)
     ):
         if adata is None:
             if verbose:
@@ -97,42 +98,51 @@ class inVAE(ABC):
 
             self.module.eval()
 
-            transformed_data = self.transformed_data
+            data_loader = self.data_loader
         else:
             if verbose:
                 print(f'Calculating latent representation of passed adata by trying to transfer setup from the adata the model was trained on!')
 
             use_cuda = (self.device == 'cuda')
 
-            data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = use_cuda, convert = self.data_loading_encoders)
+            data_loader = AnnLoader(
+                adata, 
+                batch_size = batch_size if batch_size is not None else self.batch_size, 
+                shuffle = False, 
+                use_cuda = use_cuda, 
+                convert = self.data_loading_encoders
+            )
 
-            transformed_data = data_loader.dataset[:]
+        latent = []
+        
+        with torch.inference_mode():
+            for batch in data_loader:
+                # Gene counts
+                x = batch.layers[self.layer] if self.layer is not None else batch.X
 
-        with torch.no_grad():
-            # Gene counts
-            x = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
+                # Covariates for invariate prior
+                inv_tensor_list = [batch.obs[covar].float() for covar in self.list_inv_covar]
+                inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
-            # Covariates for invariate prior
-            inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
-            inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+                # Covariates for spurious prior
+                spur_tensor_list = [batch.obs[covar].float() for covar in self.list_spur_covar]
+                spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
-            # Covariates for spurious prior
-            spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
-            spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
+                latent_mean, _ = self.module.encode(x, inv_covar, spur_covar)
 
-            latent_mean, _ = self.module.encode(x, inv_covar, spur_covar)
+                if latent_type == 'full':
+                    # Do nothing: whole latente space
+                    pass
+                elif (latent_type == 'invariant') or (latent_type == 'inv'):
+                    latent_mean = latent_mean[:, :self.latent_dim_inv]
+                elif (latent_type == 'spurious') or (latent_type == 'spur'):
+                    latent_mean = latent_mean[:, self.latent_dim_inv:]
+                else:
+                    print(f"{latent_type} is not a valid type of latent representation! Type has to be in ['full', 'invariant', 'inv', 'spurious', 'spur'].")
 
-            if latent_type == 'full':
-                # Do nothing: whole latente space
-                pass
-            elif (latent_type == 'invariant') or (latent_type == 'inv'):
-                latent_mean = latent_mean[:, :self.latent_dim_inv]
-            elif (latent_type == 'spurious') or (latent_type == 'spur'):
-                latent_mean = latent_mean[:, self.latent_dim_inv:]
-            else:
-                print(f"{latent_type} is not a valid type of latent representation! Type has to be in ['full', 'invariant', 'inv', 'spurious', 'spur'].")
+                latent += [latent_mean.detach().cpu()]
 
-        return latent_mean.detach().cpu().numpy()
+        return torch.cat(latent).numpy()
      
     def predict(
         self,
@@ -237,7 +247,11 @@ class inVAE(ABC):
         lr_opt_val: float = 0.001,
         class_print_every_n_epochs: int = None,
         opt_val_print_every_n_epochs: int = None,
-        sample_uniform_per_label: bool = False
+        sample_uniform_per_label: bool = False,
+        use_lr_schedule: bool = True,
+        lr_scheduler_patience: int = 50,
+        early_stopping: bool = False,
+        early_stopping_patience: int = 0
     ):
         # Save batch and label_key
         self.batch_key = batch_key
@@ -248,6 +262,14 @@ class inVAE(ABC):
 
         if opt_val_print_every_n_epochs is None:
             opt_val_print_every_n_epochs = n_epochs_opt_val / 5
+
+        if use_lr_schedule and early_stopping:
+            raise ValueError('Can not use early stopping and learning rate scheduling at the same time, both are set to True!')
+
+        if early_stopping and early_stopping_patience > 0:
+            early_stopper = EarlyStopper(patience=early_stopping_patience)
+        elif early_stopping and (early_stopping_patience <= 0):
+            raise ValueError('Early stopping is enabled without setting the patience!')
 
         val_loader = AnnLoader(adata_val, batch_size = 1, shuffle = False, use_cuda = (self.device == 'cuda'), convert = self.data_loading_encoders)
 
@@ -341,7 +363,11 @@ class inVAE(ABC):
             })
         
         optimizer_train = optim.Adam(classifier.parameters(), lr = lr_train_class)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer_train, factor=0.1, patience=50, verbose=True)
+
+        if use_lr_schedule and lr_scheduler_patience > 0:
+            scheduler = ReduceLROnPlateau(optimizer_train, factor=0.1, patience=lr_scheduler_patience, verbose=True)
+        elif use_lr_schedule and (lr_scheduler_patience <= 0):
+            raise ValueError('Learning rate scheduling is enabled without setting the patience!')
 
         #LOG_DIR = 
         
@@ -360,7 +386,9 @@ class inVAE(ABC):
             optimizer_train.zero_grad()
             output.backward()
             optimizer_train.step()
-            scheduler.step(output)
+
+            if use_lr_schedule:
+                scheduler.step(output)
 
             if (index_train % class_print_every_n_epochs == 0) or (index_train == (n_epochs_train_class - 1)):
                 with torch.no_grad():
@@ -373,7 +401,29 @@ class inVAE(ABC):
                         
                 acc = np.sum([env['n_correct_pred'] for env in envs]) / len(target)
                         
-                print(f'\tepoch {index_train+1}/{n_epochs_train_class}: nll loss {nll_loss:.2f}\t train_acc {acc:.2f}')
+                print(f'\tepoch {index_train+1}/{n_epochs_train_class}: nll loss {nll_loss}\t train_acc {acc:.2f}')
+
+            if early_stopping:
+                with torch.no_grad():
+                    y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
+                    y_true = label_tensor_val.view(-1, 1)
+
+                    # Calculate accuracy
+                    pred_val = y_pred_val.argmax(dim = 1, keepdim = True)
+                    acc_val = pred_val.eq(y_true.view_as(pred_val)).sum().item() / y_true.shape[0]
+
+                stop_training = early_stopper.early_stop(acc_val)
+                if stop_training:
+                    with torch.no_grad():
+                        #Compute acc
+                        for env in envs:
+                            pred = env['pred'].argmax(dim = 1, keepdim = True)
+                            env['n_correct_pred'] = pred.eq(env['target'].view_as(pred)).sum().item()
+                            
+                    acc = np.sum([env['n_correct_pred'] for env in envs]) / len(target)
+                            
+                    print(f'Stopping training of classifier early at epoch {index_train+1}: train acc {acc:.2f}\t val acc {acc_val:.2f}')
+                    break
 
         # Assign classifier to model to use later for test prediction
         self.classifier = classifier
@@ -435,6 +485,8 @@ class inVAE(ABC):
         use_lr_schedule: bool = False,
         lr_scheduler_patience: int = 50,
         warm_up_epochs: int = 0,
+        early_stopping: bool = False,
+        early_stopping_patience: int = 0
     ):
         if n_epochs is None:
             n_epochs = 500
@@ -451,8 +503,18 @@ class inVAE(ABC):
 
         optimizer = optim.Adam(self.module.parameters(), lr = lr_train, weight_decay = weight_decay)
 
-        if use_lr_schedule:
+        if use_lr_schedule and early_stopping:
+            raise ValueError('Can not use early stopping and learning rate scheduling at the same time, both are set to True!')
+
+        if use_lr_schedule and lr_scheduler_patience > 0:
             scheduler = ReduceLROnPlateau(optimizer, 'min', patience=lr_scheduler_patience, verbose=True)
+        elif use_lr_schedule and (lr_scheduler_patience <= 0):
+            raise ValueError('Learning rate scheduling is enabled without setting the patience!')
+
+        if early_stopping and early_stopping_patience > 0:
+            early_stopper = EarlyStopper(patience=early_stopping_patience)
+        elif early_stopping and (early_stopping_patience <= 0):
+            raise ValueError('Early stopping is enabled without setting the patience!')
 
         # Logger
         if log_dir is not None:
@@ -510,6 +572,13 @@ class inVAE(ABC):
 
             if use_lr_schedule and (iteration > self.module.warm_up_iters):
                 scheduler.step(loss_epoch / len(self.data_loader))
+
+            if early_stopping and (iteration > self.module.warm_up_iters):
+                stop_training = early_stopper.early_stop(loss_epoch / len(self.data_loader))
+                if stop_training:
+                    if n_checkpoints > 0:
+                        self.save(f'{checkpoint_dir}/checkpoint_epoch_{int(iteration/len(self.data_loader))}_early_stopping.pt')
+                    break
 
             end = time.time()
 
