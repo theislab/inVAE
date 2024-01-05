@@ -267,9 +267,9 @@ class inVAE(ABC):
             raise ValueError('Can not use early stopping and learning rate scheduling at the same time, both are set to True!')
 
         if early_stopping and early_stopping_patience > 0:
-            early_stopper = EarlyStopper(patience=early_stopping_patience)
-        elif early_stopping and (early_stopping_patience <= 0):
-            raise ValueError('Early stopping is enabled without setting the patience!')
+            early_stopper = EarlyStopper(patience=early_stopping_patience, verbose=False)
+        elif (early_stopping and (early_stopping_patience <= 0)) or (not early_stopping and (early_stopping_patience > 0)):
+            raise ValueError('Early stopping is enabled without setting the patience or disabled with patience!')
 
         val_loader = AnnLoader(adata_val, batch_size = 1, shuffle = False, use_cuda = (self.device == 'cuda'), convert = self.data_loading_encoders)
 
@@ -512,9 +512,9 @@ class inVAE(ABC):
             raise ValueError('Learning rate scheduling is enabled without setting the patience!')
 
         if early_stopping and early_stopping_patience > 0:
-            early_stopper = EarlyStopper(patience=early_stopping_patience)
-        elif early_stopping and (early_stopping_patience <= 0):
-            raise ValueError('Early stopping is enabled without setting the patience!')
+            early_stopper = EarlyStopper(patience=early_stopping_patience, verbose=False)
+        elif (early_stopping and (early_stopping_patience <= 0)) or (not early_stopping and (early_stopping_patience > 0)):
+            raise ValueError('Early stopping is enabled without setting the patience or disabled with patience!')
 
         # Logger
         if log_dir is not None:
@@ -578,6 +578,7 @@ class inVAE(ABC):
                 if stop_training:
                     if n_checkpoints > 0:
                         self.save(f'{checkpoint_dir}/checkpoint_epoch_{int(iteration/len(self.data_loader))}_early_stopping.pt')
+                    print(f'Stopping training of generative model early at epoch {int(iteration/len(self.data_loader))}: loss {loss_epoch / len(self.data_loader):.2f}')
                     break
 
             end = time.time()
