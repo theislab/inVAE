@@ -90,28 +90,24 @@ class inVAE(ABC):
         adata: Optional[AnnData] = None,
         latent_type: Literal['full', 'invariant', 'inv', 'spurious', 'spur'] = 'invariant',
         verbose: bool = True,
-        batch_size: Optional[int] = None, # defaults to self.batch_size (always in the case of adata=None)
+        batch_size: Optional[int] = None, # defaults to self.batch_size
     ):
-        if adata is None:
-            if verbose:
+        self.module.eval()
+        use_cuda = (self.device == 'cuda')
+
+        if verbose:
+            if adata is None:
                 print('Using saved adata for latent representation!')
-
-            self.module.eval()
-
-            data_loader = self.data_loader
-        else:
-            if verbose:
+            else:
                 print(f'Calculating latent representation of passed adata by trying to transfer setup from the adata the model was trained on!')
 
-            use_cuda = (self.device == 'cuda')
-
-            data_loader = AnnLoader(
-                adata, 
-                batch_size = batch_size if batch_size is not None else self.batch_size, 
-                shuffle = False, 
-                use_cuda = use_cuda, 
-                convert = self.data_loading_encoders
-            )
+        data_loader = AnnLoader(
+            adata if adata is not None else self.adata, 
+            batch_size = batch_size if batch_size is not None else self.batch_size, 
+            shuffle = False, 
+            use_cuda = use_cuda, 
+            convert = self.data_loading_encoders
+        )
 
         latent = []
         
