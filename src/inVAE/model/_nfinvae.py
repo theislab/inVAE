@@ -72,6 +72,25 @@ class NFinVAE(inVAE):
         self.latent_dim_spur = latent_dim_spur
         self.latent_dim_inv = self.latent_dim - latent_dim_spur
 
+        # Save all hyperparameters for reloading
+        self.n_layers = n_layers
+        self.hidden_dim = hidden_dim
+        self.activation = activation
+        self.slope = slope
+        self.fix_mean_spur_prior = fix_mean_spur_prior
+        self.fix_var_spur_prior = fix_var_spur_prior
+        self.decoder_dist = decoder_dist
+        self.batch_norm = batch_norm
+        self.batch_norm_prior = batch_norm_prior
+        self.dropout_rate = dropout_rate
+        self.tc_beta = tc_beta
+        self.inject_covar_in_latent = inject_covar_in_latent
+        self.normalize_constant = normalize_constant
+        self.reg_sm = reg_sm
+        self.output_dim_prior_nn = output_dim_prior_nn
+        self.hidden_dim_prior = hidden_dim_prior
+        self.n_layers_prior = n_layers_prior
+        
         # Set-up data
 
         # Check data first
@@ -120,3 +139,33 @@ class NFinVAE(inVAE):
             n_layers_prior = n_layers_prior,
             inject_covar_in_latent = inject_covar_in_latent,
         )
+
+    @staticmethod
+    def _get_hp_to_save():
+        hp_list = [
+            'layer',
+            'inv_covar_keys',
+            'spur_covar_keys',
+            'latent_dim_inv', 
+            'latent_dim_spur',
+            'n_layers', 
+            'hidden_dim',
+            'activation', 
+            'slope',
+            'fix_mean_spur_prior',
+            'fix_var_spur_prior',
+            'decoder_dist',
+            'batch_norm',
+            'batch_norm_prior',
+            'dropout_rate',
+            'tc_beta',
+            'batch_size',
+            'inject_covar_in_latent',
+            'normalize_constant',
+            'reg_sm',
+            'output_dim_prior_nn',
+            'hidden_dim_prior',
+            'n_layers_prior'
+        ]
+
+        return hp_list

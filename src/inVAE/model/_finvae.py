@@ -69,6 +69,22 @@ class FinVAE(inVAE):
         self.latent_dim_spur = latent_dim_spur
         self.latent_dim_inv = self.latent_dim - latent_dim_spur
 
+        # Save all relevant hyperparameters for reloading
+        self.n_layers = n_layers
+        self.hidden_dim = hidden_dim
+        self.activation = activation
+        self.slope = slope
+        self.fix_mean_prior = fix_mean_prior
+        self.fix_var_prior = fix_var_prior
+        self.decoder_dist = decoder_dist
+        self.batch_norm = batch_norm
+        self.batch_norm_prior = batch_norm_prior
+        self.dropout_rate = dropout_rate
+        self.kl_rate = kl_rate
+        self.tc_beta = tc_beta
+        self.elbo_version = elbo_version
+        self.inject_covar_in_latent = inject_covar_in_latent
+
         # Set-up data
         
         # Check if the layer of the data contains the right data:
@@ -106,7 +122,7 @@ class FinVAE(inVAE):
             batch_norm_prior = batch_norm_prior, 
             dropout_rate = dropout_rate,
             kl_rate = kl_rate,
-            tc_beta=tc_beta,
+            tc_beta = tc_beta,
             batch_size = batch_size,
             elbo_version = elbo_version,
             data_dim = self.data_dim,
@@ -115,3 +131,31 @@ class FinVAE(inVAE):
             inject_covar_in_latent = inject_covar_in_latent
         )
     
+    @staticmethod
+    def _get_hp_to_save():
+        # Set all params as self. ... to save them? Yes
+        # In the future maybe exclusion list?
+        hp_list = [
+            'layer',
+            'inv_covar_keys',
+            'spur_covar_keys',
+            'latent_dim_inv', 
+            'latent_dim_spur',
+            'n_layers', 
+            'hidden_dim',
+            'activation', 
+            'slope',
+            'fix_mean_prior',
+            'fix_var_prior',
+            'decoder_dist',
+            'batch_norm',
+            'batch_norm_prior',
+            'dropout_rate',
+            'kl_rate',
+            'tc_beta',
+            'batch_size',
+            'elbo_version',
+            'inject_covar_in_latent',
+        ]
+
+        return hp_list

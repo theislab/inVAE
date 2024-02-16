@@ -1,5 +1,6 @@
 from typing import List, Literal, Optional, Dict
 import itertools
+import inspect
 
 import time
 import numpy as np
@@ -64,24 +65,63 @@ class inVAE(ABC):
         neg_elbo = -elbo.detach().cpu().numpy()
 
         return neg_elbo
+    
+    def _get_user_attributes(self):
+        """Returns all the self attributes defined in the model class"""
+        attributes = inspect.getmembers(self)#, lambda a: not (inspect.isroutine(a)))
+        attributes = [a for a in attributes if not (a[0].startswith("__") and a[0].endswith("__"))]
+        attributes = [a for a in attributes if not a[0].startswith("_abc_")]
+        return attributes
 
     def save(
         self,
-        save_dir: str,
+        save_path: str,
         verbose: bool = True,
     ):  
         if verbose:
-            print('Saving the pytorch module...')
-            print('To load the model later you need to save the hyperparameters in a separate file/dictionary.')
+            print('Saving the model ...')
+            print('To load the model later you need to use FinVAE.load(...) or NFinVAE.load(...).')
 
-        torch.save(self.module.state_dict(), save_dir)
+        attr = self._get_user_attributes()
+        # save only relevant attr defined in class specific functions (as fixed string)
+        hp_list = self._get_hp_to_save()
+        attr = {a[0]: a[1] for a in attr if a[0] in hp_list}
+
+        torch.save({
+                'model_state_dict': self.module.state_dict(),
+                'attributes': attr 
+            }, 
+        save_path)
+
+    @classmethod
+    def load_model(
+        cls,
+        save_path: str,
+        adata: AnnData,
+        device: Literal['cpu', 'cuda'] = 'cpu',
+    ):
+        print('Initializing the model and loading weights from given checkpoint...')
+
+        # Load saved weights and hyperparameters
+        saved_dict = torch.load(save_path, map_location = torch.device(device))
+        model_state_dict = saved_dict['model_state_dict']
+        attr = saved_dict['attributes']
+
+        # Init the model
+        model = cls(adata = adata, device = device, **attr)
+                                
+        model.module.load_state_dict(model_state_dict)
+        # Put model in eval state (e.g. for batch-norm layers)
+        model.module.eval()
+        
+        return model
 
     def load(
         self,
-        save_dir: str,
+        save_path: str,
     ):
         print('Loading the model from given checkpoint...')
-        self.module.load_state_dict(torch.load(save_dir, map_location = torch.device(self.device)))
+        self.module.load_state_dict(torch.load(save_path, map_location = torch.device(self.device)))
         # Put model in eval state (e.g. for batch-norm layers)
         self.module.eval()
     

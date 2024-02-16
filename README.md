@@ -94,6 +94,15 @@ model.train_classifier(
 model.save('./checkpoints/path.pt')
 model.load('./checkpoints/path.pt')
 ```
+Newest version now supports loading model parameters and weights in one: <br/>
+```
+# Same syntax for saving but now saves model params too
+model.save('./checkpoints/path.pt')
+# New loading function (old function can be used to load older checkpoints)
+FinVAE.load_model('./checkpoints/path.pt', adata_train, device)
+# or for NFinVAE
+NFinVAE.load_model('./checkpoints/path.pt', adata_train, device)
+```
 
 ## Dependencies
 
