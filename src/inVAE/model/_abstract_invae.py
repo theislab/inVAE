@@ -45,16 +45,22 @@ class inVAE(ABC):
             transformed_data = data_loader.dataset[:]
 
             dataset_size = adata.n_obs
-        
-        # Gene counts
+
+       # Gene counts
         x = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
 
         # Covariates for invariate prior
-        inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
+        inv_tensor_list = [
+            transformed_data.obs[covar].float() if transformed_data.obs[covar].dim() != 1 else transformed_data.obs[covar].float().view(-1, 1) 
+            for covar in self.list_inv_covar
+        ]
         inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
         # Covariates for spurious prior
-        spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
+        spur_tensor_list = [
+            transformed_data.obs[covar].float() if transformed_data.obs[covar].dim() != 1 else transformed_data.obs[covar].float().view(-1, 1) 
+            for covar in self.list_spur_covar
+        ]
         spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
         # can not calculate tc loss across whole dataset: would be shape N x N x latent_dim
@@ -157,11 +163,17 @@ class inVAE(ABC):
                 x = batch.layers[self.layer] if self.layer is not None else batch.X
 
                 # Covariates for invariate prior
-                inv_tensor_list = [batch.obs[covar].float() for covar in self.list_inv_covar]
+                inv_tensor_list = [
+                    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
+                    for covar in self.list_inv_covar
+                ]
                 inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
                 # Covariates for spurious prior
-                spur_tensor_list = [batch.obs[covar].float() for covar in self.list_spur_covar]
+                spur_tensor_list = [
+                    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
+                    for covar in self.list_spur_covar
+                ]
                 spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
                 latent_mean, _ = self.module.encode(x, inv_covar, spur_covar)
@@ -314,11 +326,17 @@ class inVAE(ABC):
         x_val = full_data_val.layers[self.layer] if self.layer is not None else full_data_val.X
 
         # Covariates for invariate prior
-        inv_tensor_list = [full_data_val.obs[covar].float() for covar in self.list_inv_covar]
+        inv_tensor_list = [
+            full_data_val.obs[covar].float() if full_data_val.obs[covar].dim() != 1 else full_data_val.obs[covar].float().view(-1, 1) 
+            for covar in self.list_inv_covar
+        ]
         inv_covar_val = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
         # Covariates for spurious prior
-        spur_tensor_list = [full_data_val.obs[covar].float() for covar in self.list_spur_covar]
+        spur_tensor_list = [
+            full_data_val.obs[covar].float() if full_data_val.obs[covar].dim() != 1 else full_data_val.obs[covar].float().view(-1, 1) 
+            for covar in self.list_spur_covar
+        ]
         spur_covar_val = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
         self.module.eval()
@@ -582,11 +600,18 @@ class inVAE(ABC):
                 x = batch.layers[self.layer] if self.layer is not None else batch.X
 
                 # Covariates for invariate prior
-                inv_tensor_list = [batch.obs[covar].float() for covar in self.list_inv_covar]
+                #inv_tensor_list = [batch.obs[covar].float() for covar in self.list_inv_covar]
+                inv_tensor_list = [
+                    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
+                    for covar in self.list_inv_covar
+                ]
                 inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
                 # Covariates for spurious prior
-                spur_tensor_list = [batch.obs[covar].float() for covar in self.list_spur_covar]
+                spur_tensor_list = [
+                    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
+                    for covar in self.list_spur_covar
+                ]
                 spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
                 iteration += 1

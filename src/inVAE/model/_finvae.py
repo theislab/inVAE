@@ -100,8 +100,15 @@ class FinVAE(inVAE):
         self.list_inv_covar = list(chain.from_iterable(self.list_inv_covar))
 
         # Need to setup data first; then add dim of covariates:
-        self.spur_covar_dim = sum([self.transformed_data.obs[covar].shape[1] for covar in self.list_spur_covar])
-        self.inv_covar_dim = sum([self.transformed_data.obs[covar].shape[1] for covar in self.list_inv_covar])
+        self.spur_covar_dim = sum([
+            self.transformed_data.obs[covar].shape[-1] if self.transformed_data.obs[covar].dim() != 1 else 1 
+            for covar in self.list_spur_covar
+        ])
+
+        self.inv_covar_dim = sum([
+            self.transformed_data.obs[covar].shape[-1] if self.transformed_data.obs[covar].dim() != 1 else 1 
+            for covar in self.list_inv_covar
+        ])
 
         if inject_covar_in_latent and self.spur_covar_dim == 0:
             raise ValueError('The spurious covariates are None, can not inject them into the latent space.' + 
