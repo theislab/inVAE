@@ -162,19 +162,23 @@ class inVAE(ABC):
                 # Gene counts
                 x = batch.layers[self.layer] if self.layer is not None else batch.X
 
-                # Covariates for invariate prior
-                inv_tensor_list = [
-                    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
-                    for covar in self.list_inv_covar
-                ]
-                inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+                # Covariates for invariant prior -> just call function now
+                inv_covar = self._prepare_input(batch, covar_type='inv')
+    
+                #inv_tensor_list = [
+                #    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
+                #    for covar in self.list_inv_covar
+                #]
+                #inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
-                # Covariates for spurious prior
-                spur_tensor_list = [
-                    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
-                    for covar in self.list_spur_covar
-                ]
-                spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
+                # Covariates for spurious prior -> just call function now
+                spur_covar = self._prepare_input(batch, covar_type='spur')
+
+                #spur_tensor_list = [
+                #    batch.obs[covar].float() if batch.obs[covar].dim() != 1 else batch.obs[covar].float().view(-1, 1) 
+                #    for covar in self.list_spur_covar
+                #]
+                #spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
                 latent_mean, _ = self.module.encode(x, inv_covar, spur_covar)
 
@@ -203,22 +207,25 @@ class inVAE(ABC):
             print('Using latent representation of the adata the model was trained on. Make sure you have trained the classifier before!')
             latent_inv_train = torch.tensor(self.get_latent_representation(latent_type = 'inv', verbose = False), device=self.device)
             prediction = self.classifier(latent_inv_train)
-        elif 'val' in dataset_type:
-            print('Using saved sampled latent representation for validation adata. Make sure you have trained the classifier before!')
-            sampled_latent_val = self.saved_latent['val']
-            sampled_latent_inv_val = sampled_latent_val[:, :self.latent_dim_inv]
+        else:
+            if ('val' in dataset_type) and ('val' in self.saved_latent):
+                print('Using saved sampled latent representation for validation adata. Make sure you have trained the classifier before!')
+                sampled_latent = self.saved_latent['val']
+                sampled_latent_inv = sampled_latent[:, :self.latent_dim_inv]
 
-            if adata is not None:
-                assert adata.n_obs == sampled_latent_inv_val.shape[0]
+                if adata is not None:
+                    assert adata.n_obs == sampled_latent_inv.shape[0]
 
-            prediction = self.classifier(sampled_latent_inv_val)
-        elif 'test' in dataset_type:
-            if 'test' in self.saved_latent:
+                #prediction = self.classifier(sampled_latent_inv)
+            elif ('test' in dataset_type) and ('test' in self.saved_latent):
                 print('Using saved sampled latent representation for test adata. Make sure you have trained the classifier before!')
-                sampled_latent_test = self.saved_latent['test']
-                sampled_latent_inv_test = sampled_latent_test[:, :self.latent_dim_inv]
+                sampled_latent = self.saved_latent['test']
+                sampled_latent_inv = sampled_latent[:, :self.latent_dim_inv]
+
+                if adata is not None:
+                    assert adata.n_obs == sampled_latent_inv.shape[0]
             else:
-                print('Sampling latent representation for test adata. This may take a while. Make sure you have trained the classifier before!')
+                print(f'Sampling latent representation for {dataset_type} adata. This may take a while. Make sure you have trained the classifier before!')
                 
                 # Put data on right device and apply transforms (one-hot encoder, ...)
                 use_cuda = (self.device == 'cuda')
@@ -226,54 +233,68 @@ class inVAE(ABC):
                 transformed_data = data_loader.dataset[:]
 
                 # Assign x, z, y, nr_samples and (if necessary) invariant and spurious covariates
-                x_test = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
+                x = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
                 latent_train = torch.tensor(self.get_latent_representation(latent_type = 'full', verbose = False), device=self.device)
 
                 encoder_label = self.dict_encoders[f'label_{self.label_key}']
-                label_tensor_test = torch.tensor(encoder_label.transform(adata.obs[self.label_key]), device = self.device)
+                
+                if self.label_key in adata.obs:
+                    label_tensor = torch.tensor(encoder_label.transform(adata.obs[self.label_key]), device = self.device)
+                else:
+                    label_tensor = None
 
                 nr_samples = self.optimize_latent_dict['nr_samples']
                 sample_uniform_per_label = self.optimize_latent_dict['sample_uniform_per_label']
                 
                 # Covariates for invariate prior
-                inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
-                inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+                #inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
+                #inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
                 # Covariates for spurious prior
                 spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
                 spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
 
                 # sampling and optimizing latent for test
-                init_z_test, test_acc_label_match = self._sample_latents_for_prediction(
-                    x = x_test,
+                init_z, test_acc_label_match = self._sample_latents_for_prediction(
+                    x = x,
                     latent_sample = latent_train,
                     nr_samples = nr_samples,
-                    labels_x = adata.obs[self.label_key].tolist(),
-                    labels_sample = self.adata.obs[self.label_key].tolist(),
-                    inv_covar = inv_covar,
+                    labels_x = adata.obs[self.label_key].tolist() if self.label_key in adata.obs else None,
+                    labels_sample = self.adata.obs[self.label_key].tolist() if self.label_key in self.adata.obs else None,
+                    #inv_covar = inv_covar,
                     spur_covar = spur_covar,
                     sample_uniform_per_label = sample_uniform_per_label
                 )
 
+                if not hasattr(self, 'saved_metrics'):
+                    self.saved_metrics = {}
+                    
                 self.saved_metrics['test_acc_label_match'] = test_acc_label_match
 
                 if self.optimize_latent_dict['n_epochs_opt_val'] > 0:
-                    final_z_test, _ = self._optimize_latents_for_prediction(
-                        x = x_test, # dim: nr_obs_test x genes
-                        init_z = init_z_test, # dim: nr_obs_test x latent_dim
-                        label_tensor = label_tensor_test, # dim: nr_obs_test x 1
-                        inv_covar = inv_covar,
+                    final_z, _ = self._optimize_latents_for_prediction(
+                        x = x, # dim: nr_obs_test x genes
+                        init_z = init_z, # dim: nr_obs_test x latent_dim
+                        label_tensor = label_tensor, # dim: nr_obs_test x 1
+                        #inv_covar = inv_covar,
                         spur_covar = spur_covar
                     )
 
-                    self.saved_latent['test'] = final_z_test.clone()
+                    if 'test' in dataset_type:
+                        self.saved_latent['test'] = final_z.clone()
+                    elif 'val' in dataset_type:
+                        self.saved_latent['val'] = final_z.clone()
 
-                    sampled_latent_inv_test = final_z_test[:, :self.latent_dim_inv]
+                    sampled_latent_inv = final_z[:, :self.latent_dim_inv]
                 else:
-                    self.saved_latent['test'] = init_z_test.clone()
-                    sampled_latent_inv_test = init_z_test[:, :self.latent_dim_inv]
+                    if 'test' in dataset_type:
+                        self.saved_latent['test'] = init_z.clone()
+                    elif 'val' in dataset_type:
+                        self.saved_latent['val'] = init_z.clone()
+                    
+                    sampled_latent_inv = init_z[:, :self.latent_dim_inv]
             
-            prediction = self.classifier(sampled_latent_inv_test)
+            prediction = self.classifier(sampled_latent_inv)
 
         # Transform back to string representation of labels
         prediction = prediction.argmax(dim = 1, keepdim = True)
@@ -282,7 +303,7 @@ class inVAE(ABC):
 
     def train_classifier(
         self,
-        adata_val: AnnData,
+        adata_val: AnnData = None,
         batch_key: Optional[str] = None,
         label_key: Optional[str] = None,
         n_epochs_train_class: int = 500,
@@ -319,29 +340,32 @@ class inVAE(ABC):
         elif (early_stopping and (early_stopping_patience <= 0)) or (not early_stopping and (early_stopping_patience > 0)):
             raise ValueError('Early stopping is enabled without setting the patience or disabled with patience!')
 
-        val_loader = AnnLoader(adata_val, batch_size = 1, shuffle = False, use_cuda = (self.device == 'cuda'), convert = self.data_loading_encoders)
+        if adata_val is not None:
+            val_loader = AnnLoader(adata_val, batch_size = 1, shuffle = False, use_cuda = (self.device == 'cuda'), convert = self.data_loading_encoders)
 
-        # Assign x_val, and (if necessary) invariant and spurious covariates
-        full_data_val = val_loader.dataset[:]
-        x_val = full_data_val.layers[self.layer] if self.layer is not None else full_data_val.X
+            # Assign x_val, and (if necessary) invariant and spurious covariates
+            full_data_val = val_loader.dataset[:]
+            x_val = full_data_val.layers[self.layer] if self.layer is not None else full_data_val.X
 
-        # Covariates for invariate prior
-        inv_tensor_list = [
-            full_data_val.obs[covar].float() if full_data_val.obs[covar].dim() != 1 else full_data_val.obs[covar].float().view(-1, 1) 
-            for covar in self.list_inv_covar
-        ]
-        inv_covar_val = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+            # Covariates for invariate prior -> do not need them at this point
+            #inv_tensor_list = [
+            #    full_data_val.obs[covar].float() if full_data_val.obs[covar].dim() != 1 else full_data_val.obs[covar].float().view(-1, 1) 
+            #    for covar in self.list_inv_covar
+            #]
+            #inv_covar_val = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
 
-        # Covariates for spurious prior
-        spur_tensor_list = [
-            full_data_val.obs[covar].float() if full_data_val.obs[covar].dim() != 1 else full_data_val.obs[covar].float().view(-1, 1) 
-            for covar in self.list_spur_covar
-        ]
-        spur_covar_val = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
+            # Covariates for spurious prior -> call function now
+            #spur_tensor_list = [
+            #    full_data_val.obs[covar].float() if full_data_val.obs[covar].dim() != 1 else full_data_val.obs[covar].float().view(-1, 1) 
+            #    for covar in self.list_spur_covar
+            #]
+            #spur_covar_val = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
+            spur_covar_val = self._prepare_input(full_data_val, covar_type='spur')
+
+            nr_val_obs = adata_val.n_obs
 
         self.module.eval()
 
-        nr_val_obs = adata_val.n_obs
         latent_dim = self.latent_dim
         latent_dim_inv = self.latent_dim_inv
 
@@ -361,7 +385,11 @@ class inVAE(ABC):
 
         encoder_label = self.dict_encoders[f'label_{self.label_key}']
         label_tensor_train = torch.tensor(encoder_label.fit_transform(self.adata.obs[self.label_key]), device = self.device)
-        label_tensor_val = torch.tensor(encoder_label.transform(adata_val.obs[self.label_key]), device = self.device)
+
+        if (adata_val is not None) and (self.label_key in adata_val.obs):
+            label_tensor_val = torch.tensor(encoder_label.transform(adata_val.obs[self.label_key]), device = self.device)
+        else:
+            label_tensor_val = None
 
         encoder_batch = LabelEncoder()
         batch_tensor_train = torch.tensor(encoder_batch.fit_transform(self.adata.obs[self.batch_key]), device = self.device)
@@ -373,21 +401,22 @@ class inVAE(ABC):
         print('Starting sampling of latents for the val data...')
         
         # Initialzing latent samples for val data via samples of training data
-        init_z, val_acc_label_match = self._sample_latents_for_prediction(
-            x = x_val,
-            latent_sample = latent_sample,
-            nr_samples = nr_samples,
-            labels_x = adata_val.obs[self.label_key].tolist(),
-            labels_sample = self.adata.obs[self.label_key].tolist(),
-            inv_covar = inv_covar_val,
-            spur_covar = spur_covar_val,
-            sample_uniform_per_label = sample_uniform_per_label
-        )
+        if adata_val is not None:
+            init_z, val_acc_label_match = self._sample_latents_for_prediction(
+                x = x_val,
+                latent_sample = latent_sample,
+                nr_samples = nr_samples,
+                labels_x = adata_val.obs[self.label_key].tolist() if (adata_val is not None) and (self.label_key in adata_val.obs) else None,
+                labels_sample = self.adata.obs[self.label_key].tolist(),
+                #inv_covar = inv_covar_val,
+                spur_covar = spur_covar_val,
+                sample_uniform_per_label = sample_uniform_per_label
+            )
 
-        self.saved_metrics = {'val_acc_label_match': val_acc_label_match}
-        self.saved_latent['val'] = init_z.clone()
+            self.saved_metrics = {'val_acc_label_match': val_acc_label_match}
+            self.saved_latent['val'] = init_z.clone()
 
-        print('Sampling done!')
+            print('Sampling done!')
 
         hp_dict_class = {
             'hidden_dim': hidden_dim_class,
@@ -457,7 +486,7 @@ class inVAE(ABC):
                         
                 print(f'\tepoch {index_train+1}/{n_epochs_train_class}: nll loss {nll_loss}\t train_acc {acc:.2f}')
 
-            if early_stopping:
+            if early_stopping and (label_tensor_val is not None):
                 with torch.no_grad():
                     y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
                     y_true = label_tensor_val.view(-1, 1)
@@ -483,15 +512,16 @@ class inVAE(ABC):
         self.classifier = classifier
         self.classifier.eval()
         
-        with torch.no_grad():
-            y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
-            y_true = label_tensor_val.view(-1, 1)
+        if label_tensor_val is not None:
+            with torch.no_grad():
+                y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
+                y_true = label_tensor_val.view(-1, 1)
 
-            # Calculate accuracy
-            pred_val = y_pred_val.argmax(dim = 1, keepdim = True)
-            acc_val = pred_val.eq(y_true.view_as(pred_val)).sum().item() / y_true.shape[0]
+                # Calculate accuracy
+                pred_val = y_pred_val.argmax(dim = 1, keepdim = True)
+                acc_val = pred_val.eq(y_true.view_as(pred_val)).sum().item() / y_true.shape[0]
 
-        print(f'\tThe val acc before optimizing the latents is: {acc_val:.3f}')
+            print(f'\tThe val acc before optimizing the latents is: {acc_val:.3f}')
 
         self.optimize_latent_dict = {
             'lr_opt_val': lr_opt_val,
@@ -500,7 +530,7 @@ class inVAE(ABC):
             'sample_uniform_per_label': sample_uniform_per_label
         }
         
-        if n_epochs_opt_val > 0:
+        if (n_epochs_opt_val > 0) and (label_tensor_val is not None):
             print('Starting to optimize sampled latents for validation data...')
 
             # Optimize latents for val data (see function description)
@@ -509,7 +539,7 @@ class inVAE(ABC):
                 x = x_val, # dim: nr_obs_val x genes
                 init_z = init_z, # dim: nr_obs_val x latent_dim
                 label_tensor = label_tensor_val, # dim: nr_obs_val x 1
-                inv_covar = inv_covar_val,
+                #inv_covar = inv_covar_val,
                 spur_covar = spur_covar_val
             )
 
@@ -661,12 +691,40 @@ class inVAE(ABC):
         self.module.eval()
         print('Training done!')
 
+    def _prepare_input(
+        self,
+        data: AnnData,
+        covar_type: Literal['inv', 'spur'] = 'inv'
+    ):
+        # List to save all covars
+        tensor_list = []
+
+        # Which covars?
+        if covar_type == 'inv':
+            list_covar = self.list_inv_covar
+            covar_dim = self.inv_covar_dim
+        elif covar_type == 'spur':
+            list_covar = self.list_spur_covar
+            covar_dim = self.spur_covar_dim
+
+        for covar in list_covar:
+            # Check if covar key is in data
+            if covar in data.obs.keys():
+                tensor_list.append(data.obs[covar].float() if data.obs[covar].dim() != 1 else data.obs[covar].float().view(-1, 1))
+            else:
+                # Construct zeros the right size for that covar: in the future maybe something more adaptive
+                tensor_list.append(torch.zeros(data.n_obs, len(self.dict_encoders[covar].categories_[0])))
+
+        tensor = torch.cat(tensor_list, dim = 1) if (covar_dim != 0) else None
+
+        return tensor
+
     def _optimize_latents_for_prediction(
         self,
         x: torch.Tensor, # dim: nr_obs x genes
         init_z: torch.Tensor, # dim: nr_obs x latent_dim
-        label_tensor: torch.Tensor, # dim: nr_obs x 1
-        inv_covar: torch.Tensor = None,
+        label_tensor: torch.Tensor = None, # dim: nr_obs x 1
+        #inv_covar: torch.Tensor = None, # can be removed as at the moment there is no use of the invariant covariates for optimizing the latents
         spur_covar: torch.Tensor = None,
     ):  
         # Extract parameters for optimizing the latents from dict (sha
@@ -674,7 +732,10 @@ class inVAE(ABC):
         n_epochs_opt_val = self.optimize_latent_dict['n_epochs_opt_val']
 
         # Array for saving accuracies across epochs
-        acc_array = np.zeros([n_epochs_opt_val])
+        if label_tensor is not None:
+            acc_array = np.zeros([n_epochs_opt_val])
+        else:
+            acc_array = None
         
         latent_dim = self.latent_dim
         latent_dim_inv = self.latent_dim_inv
@@ -682,7 +743,7 @@ class inVAE(ABC):
         for ind in range(x.shape[0]):
             x_tmp, y_tmp, z_tmp = (
                 x[ind], 
-                label_tensor[ind], 
+                label_tensor[ind] if label_tensor is not None else None, 
                 init_z[ind]
             )
 
@@ -711,12 +772,13 @@ class inVAE(ABC):
                 optimizer_val.step()
                 
                 # Calculate accuracy
-                with torch.no_grad():
-                    y_pred = self.classifier(z_tmp[:latent_dim_inv].view(-1, latent_dim_inv).float())
-                    y_true = y_tmp.view(-1,1)
+                if y_tmp is not None:
+                    with torch.no_grad():
+                        y_pred = self.classifier(z_tmp[:latent_dim_inv].view(-1, latent_dim_inv).float())
+                        y_true = y_tmp.view(-1,1)
 
-                    pred = y_pred.argmax(dim = 1, keepdim = True)
-                    acc_array[(iteration - 1)] = acc_array[(iteration - 1)] + pred.eq(y_true.view_as(pred)).sum().item()
+                        pred = y_pred.argmax(dim = 1, keepdim = True)
+                        acc_array[(iteration - 1)] = acc_array[(iteration - 1)] + pred.eq(y_true.view_as(pred)).sum().item()
 
         return init_z, acc_array
 
@@ -727,7 +789,7 @@ class inVAE(ABC):
         nr_samples: int = 100,
         labels_x: list = None, # dim: nr_obs x genes
         labels_sample: list = None, # dim: nr_obs_train x latent_dim
-        inv_covar: torch.Tensor = None,
+        #inv_covar: torch.Tensor = None, # can be removed as at the moment there is no use of the invariant covariates for optimizing the latents
         spur_covar: torch.Tensor = None,
         sample_uniform_per_label: bool = False,
     ):
@@ -737,6 +799,8 @@ class inVAE(ABC):
         # Store acc of label match
         if labels_x is not None and labels_sample is not None:
             acc_label_match = 0
+        else:
+            acc_label_match = None
 
         # For every cell in the data (i.e. with x the corresponding gene counts) sample from the latent space of the training data (i.e. from latent_sample)
         # to get a latent representation for that sample that closely matches the gene count data in x (highest decoder density of x and z)
