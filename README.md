@@ -73,9 +73,14 @@ model = NFinVAE(
 
 4. Train the generative model: <br/>
 ```model.train(n_epochs=500, lr_train=0.001, weight_decay=0.0001)```<br/>
-5. Get the latent representation: <br/>
-```latent = model.get_latent_representation(adata)```<br/>
-6. Optional - Train the classifer (for cell types):
+5. Get the latent representation: In the case that covariates that were used are missing the encoder gets zeros as inputs for that sample and covariate<br/>
+``` 
+# This works for an arbitrary adata object not only for the training data
+# Other options for the latent type are: full or spurious
+latent = model.get_latent_representation(adata, latent_type='invariant')
+```
+
+6. Optional - Train the classifer (for cell types): if adata_val is not given or does not have labels the classifier is just trained on the adata object the generative model was trained on (here: adata_train)
 
 ```
 model.train_classifier(
@@ -86,9 +91,23 @@ model.train_classifier(
 ```
 
 7. Optional - Predict cell types: <br/>
-```pred_test = model.predict(adata_test, dataset_type='test')```<br/>
+```
+# Other possible dataset_types: train or val
+# train corresponds to the adata_train object above
+# val to the adata used in the train_classifier function
+# test is for a new unseen object
+pred_test = model.predict(adata_test, dataset_type='test')
+```
 
-8. Optional - Saving and loading model: <br/>
+8. Optional - Infer latent representation via trained classifier: <br/>
+```
+# As key one can use 'val' or 'test' depending which key was used in the predict function above
+# E.g. for invariant latent representation
+# Otherwise do not subset for the full representation or subset to the last dimensions for the spurious one
+latent_samples_inv = model.saved_latent['val'][:, :model.latent_dim_inv]
+```
+
+9. Optional - Saving and loading model: <br/>
 
 ```
 model.save('./checkpoints/path.pt')
