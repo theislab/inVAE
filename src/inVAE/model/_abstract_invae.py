@@ -5,9 +5,11 @@ import inspect
 import time
 import numpy as np
 import torch
+import torch.nn as nn
 from torch import optim
 from torch.nn import functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader, TensorDataset
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -15,6 +17,7 @@ import scanpy as sc
 from anndata.experimental.pytorch import AnnLoader
 
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.neighbors import KNeighborsClassifier
 
 from abc import ABC, abstractmethod
 from anndata import AnnData
@@ -201,111 +204,139 @@ class inVAE(ABC):
         adata: AnnData,
         dataset_type: Literal['train', 'val', 'validation', 'test'] = 'train',
     ):
-        self.classifier.eval()
-
-        if dataset_type == 'train':
-            print('Using latent representation of the adata the model was trained on. Make sure you have trained the classifier before!')
-            latent_inv_train = torch.tensor(self.get_latent_representation(latent_type = 'inv', verbose = False), device=self.device)
-            prediction = self.classifier(latent_inv_train)
-        else:
-            if ('val' in dataset_type) and ('val' in self.saved_latent):
-                print('Using saved sampled latent representation for validation adata. Make sure you have trained the classifier before!')
-                sampled_latent = self.saved_latent['val']
-                sampled_latent_inv = sampled_latent[:, :self.latent_dim_inv]
-
-                if adata is not None:
-                    assert adata.n_obs == sampled_latent_inv.shape[0]
-
-                #prediction = self.classifier(sampled_latent_inv)
-            elif ('test' in dataset_type) and ('test' in self.saved_latent):
-                print('Using saved sampled latent representation for test adata. Make sure you have trained the classifier before!')
-                sampled_latent = self.saved_latent['test']
-                sampled_latent_inv = sampled_latent[:, :self.latent_dim_inv]
-
-                if adata is not None:
-                    assert adata.n_obs == sampled_latent_inv.shape[0]
+        if isinstance(self.classifier, KNeighborsClassifier):
+            #kNN classifier:
+            if dataset_type == 'train':
+                print('Using latent representation of the adata the model was trained on. Make sure you have trained the classifier before!')
+                latent_inv = self.get_latent_representation(latent_type = 'inv', verbose = False)
             else:
-                print(f'Sampling latent representation for {dataset_type} adata. This may take a while. Make sure you have trained the classifier before!')
-                
-                # Put data on right device and apply transforms (one-hot encoder, ...)
-                use_cuda = (self.device == 'cuda')
-                data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = use_cuda, convert = self.data_loading_encoders)
-                transformed_data = data_loader.dataset[:]
+                latent_inv = self.get_latent_representation(adata, latent_type = 'inv', verbose = False)
 
-                # Assign x, z, y, nr_samples and (if necessary) invariant and spurious covariates
-                x = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
-                latent_train = torch.tensor(self.get_latent_representation(latent_type = 'full', verbose = False), device=self.device)
+            prediction = self.classifier.predict(latent_inv)
+            prediction = self.dict_encoders[f'label_{self.label_key}'].inverse_transform(prediction)
+        elif isinstance(self.classifier, nn.Linear):
+            #linear classifier
+            self.classifier.eval()
 
-                encoder_label = self.dict_encoders[f'label_{self.label_key}']
-                
-                if self.label_key in adata.obs:
-                    label_tensor = torch.tensor(encoder_label.transform(adata.obs[self.label_key]), device = self.device)
+            if dataset_type == 'train':
+                print('Using latent representation of the adata the model was trained on. Make sure you have trained the classifier before!')
+                latent_inv = torch.tensor(self.get_latent_representation(latent_type = 'inv', verbose = False), device=self.device)
+            else:
+                latent_inv = torch.tensor(self.get_latent_representation(adata, latent_type = 'inv', verbose = False), device=self.device)
+
+            prediction = self.classifier(latent_inv)
+            _, prediction = torch.max(prediction, dim=1)
+            prediction = self.dict_encoders[f'label_{self.label_key}'].inverse_transform(prediction.view(-1).detach().cpu().numpy())
+        else:
+            #irm classifier
+            self.classifier.eval()
+
+            if dataset_type == 'train':
+                print('Using latent representation of the adata the model was trained on. Make sure you have trained the classifier before!')
+                latent_inv_train = torch.tensor(self.get_latent_representation(latent_type = 'inv', verbose = False), device=self.device)
+                prediction = self.classifier(latent_inv_train)
+            else:
+                if ('val' in dataset_type) and ('val' in self.saved_latent):
+                    print('Using saved sampled latent representation for validation adata. Make sure you have trained the classifier before!')
+                    sampled_latent = self.saved_latent['val']
+                    sampled_latent_inv = sampled_latent[:, :self.latent_dim_inv]
+
+                    if adata is not None:
+                        assert adata.n_obs == sampled_latent_inv.shape[0]
+
+                    #prediction = self.classifier(sampled_latent_inv)
+                elif ('test' in dataset_type) and ('test' in self.saved_latent):
+                    print('Using saved sampled latent representation for test adata. Make sure you have trained the classifier before!')
+                    sampled_latent = self.saved_latent['test']
+                    sampled_latent_inv = sampled_latent[:, :self.latent_dim_inv]
+
+                    if adata is not None:
+                        assert adata.n_obs == sampled_latent_inv.shape[0]
                 else:
-                    label_tensor = None
-
-                nr_samples = self.optimize_latent_dict['nr_samples']
-                sample_uniform_per_label = self.optimize_latent_dict['sample_uniform_per_label']
-                
-                # Covariates for invariate prior
-                #inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
-                #inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
-
-                # Covariates for spurious prior
-                spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
-                spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
-
-                # sampling and optimizing latent for test
-                init_z, test_acc_label_match = self._sample_latents_for_prediction(
-                    x = x,
-                    latent_sample = latent_train,
-                    nr_samples = nr_samples,
-                    labels_x = adata.obs[self.label_key].tolist() if self.label_key in adata.obs else None,
-                    labels_sample = self.adata.obs[self.label_key].tolist() if self.label_key in self.adata.obs else None,
-                    #inv_covar = inv_covar,
-                    spur_covar = spur_covar,
-                    sample_uniform_per_label = sample_uniform_per_label
-                )
-
-                if not hasattr(self, 'saved_metrics'):
-                    self.saved_metrics = {}
+                    print(f'Sampling latent representation for {dataset_type} adata. This may take a while. Make sure you have trained the classifier before!')
                     
-                self.saved_metrics['test_acc_label_match'] = test_acc_label_match
+                    # Put data on right device and apply transforms (one-hot encoder, ...)
+                    use_cuda = (self.device == 'cuda')
+                    data_loader = AnnLoader(adata, batch_size = 1, shuffle = False, use_cuda = use_cuda, convert = self.data_loading_encoders)
+                    transformed_data = data_loader.dataset[:]
 
-                if self.optimize_latent_dict['n_epochs_opt_val'] > 0:
-                    final_z, _ = self._optimize_latents_for_prediction(
-                        x = x, # dim: nr_obs_test x genes
-                        init_z = init_z, # dim: nr_obs_test x latent_dim
-                        label_tensor = label_tensor, # dim: nr_obs_test x 1
+                    # Assign x, z, y, nr_samples and (if necessary) invariant and spurious covariates
+                    x = transformed_data.layers[self.layer] if self.layer is not None else transformed_data.X
+                    latent_train = torch.tensor(self.get_latent_representation(latent_type = 'full', verbose = False), device=self.device)
+
+                    encoder_label = self.dict_encoders[f'label_{self.label_key}']
+                    
+                    if self.label_key in adata.obs:
+                        label_tensor = torch.tensor(encoder_label.transform(adata.obs[self.label_key]), device = self.device)
+                    else:
+                        label_tensor = None
+
+                    nr_samples = self.optimize_latent_dict['nr_samples']
+                    sample_uniform_per_label = self.optimize_latent_dict['sample_uniform_per_label']
+                    
+                    # Covariates for invariate prior
+                    #inv_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_inv_covar]
+                    #inv_covar = torch.cat(inv_tensor_list, dim = 1) if (self.inv_covar_dim != 0) else None
+
+                    # Covariates for spurious prior
+                    spur_tensor_list = [transformed_data.obs[covar].float() for covar in self.list_spur_covar]
+                    spur_covar = torch.cat(spur_tensor_list, dim = 1) if (self.spur_covar_dim != 0) else None
+
+                    # sampling and optimizing latent for test
+                    init_z, test_acc_label_match = self._sample_latents_for_prediction(
+                        x = x,
+                        latent_sample = latent_train,
+                        nr_samples = nr_samples,
+                        labels_x = adata.obs[self.label_key].tolist() if self.label_key in adata.obs else None,
+                        labels_sample = self.adata.obs[self.label_key].tolist() if self.label_key in self.adata.obs else None,
                         #inv_covar = inv_covar,
-                        spur_covar = spur_covar
+                        spur_covar = spur_covar,
+                        sample_uniform_per_label = sample_uniform_per_label
                     )
 
-                    if 'test' in dataset_type:
-                        self.saved_latent['test'] = final_z.clone()
-                    elif 'val' in dataset_type:
-                        self.saved_latent['val'] = final_z.clone()
+                    if not hasattr(self, 'saved_metrics'):
+                        self.saved_metrics = {}
+                        
+                    self.saved_metrics['test_acc_label_match'] = test_acc_label_match
 
-                    sampled_latent_inv = final_z[:, :self.latent_dim_inv]
-                else:
-                    if 'test' in dataset_type:
-                        self.saved_latent['test'] = init_z.clone()
-                    elif 'val' in dataset_type:
-                        self.saved_latent['val'] = init_z.clone()
-                    
-                    sampled_latent_inv = init_z[:, :self.latent_dim_inv]
-            
-            prediction = self.classifier(sampled_latent_inv)
+                    if self.optimize_latent_dict['n_epochs_opt_val'] > 0:
+                        final_z, _ = self._optimize_latents_for_prediction(
+                            x = x, # dim: nr_obs_test x genes
+                            init_z = init_z, # dim: nr_obs_test x latent_dim
+                            label_tensor = label_tensor, # dim: nr_obs_test x 1
+                            #inv_covar = inv_covar,
+                            spur_covar = spur_covar
+                        )
 
-        # Transform back to string representation of labels
-        prediction = prediction.argmax(dim = 1, keepdim = True)
-        prediction = self.dict_encoders[f'label_{self.label_key}'].inverse_transform(prediction.view(-1).detach().cpu().numpy())
+                        if 'test' in dataset_type:
+                            self.saved_latent['test'] = final_z.clone()
+                        elif 'val' in dataset_type:
+                            self.saved_latent['val'] = final_z.clone()
+
+                        sampled_latent_inv = final_z[:, :self.latent_dim_inv]
+                    else:
+                        if 'test' in dataset_type:
+                            self.saved_latent['test'] = init_z.clone()
+                        elif 'val' in dataset_type:
+                            self.saved_latent['val'] = init_z.clone()
+                        
+                        sampled_latent_inv = init_z[:, :self.latent_dim_inv]
+                
+                prediction = self.classifier(sampled_latent_inv)
+
+            # Transform back to string representation of labels
+            prediction = prediction.argmax(dim = 1, keepdim = True)
+            prediction = self.dict_encoders[f'label_{self.label_key}'].inverse_transform(prediction.view(-1).detach().cpu().numpy())
+
         return prediction
+
 
     def train_classifier(
         self,
         adata_val: AnnData = None,
         batch_key: Optional[str] = None,
         label_key: Optional[str] = None,
+        type_classifier: Literal['irm', 'linear', 'knn'] = 'linear',
         n_epochs_train_class: int = 500,
         n_epochs_opt_val: int = 0,
         nr_samples: int = 100,
@@ -370,7 +401,12 @@ class inVAE(ABC):
         latent_dim_inv = self.latent_dim_inv
 
         # Get invariant latent space representation
-        latent_sample = torch.tensor(self.get_latent_representation(self.adata, latent_type='full'), device=self.device).view(-1, latent_dim)
+        if type_classifier == 'knn':
+            # Need numpy array for knn
+            latent_sample_inv = self.get_latent_representation(self.adata, latent_type='inv')
+        else:
+            # for irm or linear: torch.tensor
+            latent_sample = torch.tensor(self.get_latent_representation(self.adata, latent_type='full'), device=self.device).view(-1, latent_dim)
 
         # Set-up encoders for batches and labels
         
@@ -384,12 +420,30 @@ class inVAE(ABC):
             raise ValueError('Please specify the key for the labels in order to train the classifier!')
 
         encoder_label = self.dict_encoders[f'label_{self.label_key}']
-        label_tensor_train = torch.tensor(encoder_label.fit_transform(self.adata.obs[self.label_key]), device = self.device)
+
+        if type_classifier == 'knn':
+            # Need numpy array for knn
+            label_train = encoder_label.fit_transform(self.adata.obs[self.label_key])
+        else:
+            # for irm or linear: torch.tensor
+            label_tensor_train = torch.tensor(encoder_label.fit_transform(self.adata.obs[self.label_key]), device = self.device)
 
         if (adata_val is not None) and (self.label_key in adata_val.obs):
-            label_tensor_val = torch.tensor(encoder_label.transform(adata_val.obs[self.label_key]), device = self.device)
+            if type_classifier == 'knn':
+                # Need numpy array for knn
+                latent_inv_val = self.get_latent_representation(adata_val, latent_type='inv')
+                label_val = encoder_label.transform(adata_val.obs[self.label_key])
+            else:
+                # for irm or linear: torch.tensor
+                label_tensor_val = torch.tensor(encoder_label.transform(adata_val.obs[self.label_key]), device = self.device)
+                
+                if type_classifier == 'linear':
+                    latent_inv_val = torch.tensor(self.get_latent_representation(adata_val, latent_type='inv'), device = self.device)
+                    dataset_val = TensorDataset(latent_inv_val, label_tensor_val.view(-1))
+                    dataloader_val = DataLoader(dataset_val, batch_size=self.batch_size, shuffle=True)
         else:
             label_tensor_val = None
+            label_val = None
 
         encoder_batch = LabelEncoder()
         batch_tensor_train = torch.tensor(encoder_batch.fit_transform(self.adata.obs[self.batch_key]), device = self.device)
@@ -397,11 +451,11 @@ class inVAE(ABC):
         if len(encoder_label.classes_) == 1:
             print('Warning: There is only one batch in the (training) data. This model might not behave as intended.')
             print('Consider using the whole latent space (option: type = "full") as a representation instead of only the invariant latent space!')
-
-        print('Starting sampling of latents for the val data...')
         
-        # Initialzing latent samples for val data via samples of training data
-        if adata_val is not None:
+        # Initializing latent samples for val data via samples of training data
+        if (adata_val is not None) and (type_classifier == 'irm'):
+            print('Starting sampling of latents for the val data...')
+
             init_z, val_acc_label_match = self._sample_latents_for_prediction(
                 x = x_val,
                 latent_sample = latent_sample,
@@ -418,75 +472,118 @@ class inVAE(ABC):
 
             print('Sampling done!')
 
-        hp_dict_class = {
-            'hidden_dim': hidden_dim_class,
-            'n_layers': n_layers_class,
-            'activation': act_class
-        }
-        
-        classifier = ModularMultiClassifier(
-            input_dim = self.latent_dim_inv, 
-            n_classes = len(encoder_label.classes_),
-            **hp_dict_class,
-            device = self.device
-        ).to(self.device)
+        if type_classifier == 'knn':
+            # Init knn classifier with default args
+            self.classifier = KNeighborsClassifier()
 
-        target = label_tensor_train.view((-1, 1))
-        
-        env_tensor = batch_tensor_train.view(-1, 1)
+            # Fit class for training data
+            self.classifier.fit(latent_sample_inv, label_train)
 
-        unique_env = torch.unique(env_tensor)
-        
-        envs = []
-        
-        for e in unique_env:
-            envs.append({
-                'latent': latent_sample[(env_tensor == e).view(-1), :latent_dim_inv],
-                'target': target[(env_tensor == e).view(-1)]
-            })
-        
-        optimizer_train = optim.Adam(classifier.parameters(), lr = lr_train_class)
+            # Predict label on train and val
+            pred_train = self.classifier.predict(latent_sample_inv)
+            train_acc = (pred_train == label_train).sum()/label_train.shape[0]
+            print(f'The accuracy of the knn classifier on train is: {train_acc:.3f}')
 
-        if use_lr_schedule and lr_scheduler_patience > 0:
-            scheduler = ReduceLROnPlateau(optimizer_train, factor=0.1, patience=lr_scheduler_patience, verbose=True)
-        elif use_lr_schedule and (lr_scheduler_patience <= 0):
-            raise ValueError('Learning rate scheduling is enabled without setting the patience!')
-
-        #LOG_DIR = 
-        
-        #test_writer = SummaryWriter(log_dir=LOG_DIR)
-        
-        classifier.train()
-        
-        for index_train in range(n_epochs_train_class):
+            if label_val is not None:
+                pred_val = self.classifier.predict(latent_inv_val)
+                val_acc = (pred_val == label_val).sum()/label_val.shape[0]
+                print(f'The accuracy of the knn classifier on val is: {val_acc:.3f}')
+        elif type_classifier == 'irm':
+            hp_dict_class = {
+                'hidden_dim': hidden_dim_class,
+                'n_layers': n_layers_class,
+                'activation': act_class
+            }
             
-            for env in envs:
-                env['pred'] = classifier(env['latent'].float())
-                env['loss'] = F.nll_loss(env['pred'].float(), env['target'].long().view(-1))
+            classifier = ModularMultiClassifier(
+                input_dim = self.latent_dim_inv, 
+                n_classes = len(encoder_label.classes_),
+                **hp_dict_class,
+                device = self.device
+            ).to(self.device)
 
-            output = torch.stack([env['loss'] for env in envs]).mean()
+            target = label_tensor_train.view((-1, 1))
             
-            optimizer_train.zero_grad()
-            output.backward()
-            optimizer_train.step()
+            env_tensor = batch_tensor_train.view(-1, 1)
 
-            if use_lr_schedule:
-                scheduler.step(output)
+            unique_env = torch.unique(env_tensor)
+            
+            envs = []
+            
+            for e in unique_env:
+                envs.append({
+                    'latent': latent_sample[(env_tensor == e).view(-1), :latent_dim_inv],
+                    'target': target[(env_tensor == e).view(-1)]
+                })
+            
+            optimizer_train = optim.Adam(classifier.parameters(), lr = lr_train_class)
 
-            if (index_train % class_print_every_n_epochs == 0) or (index_train == (n_epochs_train_class - 1)):
-                with torch.no_grad():
-                    nll_loss = output.detach().cpu().numpy()
-                    
-                    #Compute acc
-                    for env in envs:
-                        pred = env['pred'].argmax(dim = 1, keepdim = True)
-                        env['n_correct_pred'] = pred.eq(env['target'].view_as(pred)).sum().item()
+            if use_lr_schedule and lr_scheduler_patience > 0:
+                scheduler = ReduceLROnPlateau(optimizer_train, factor=0.1, patience=lr_scheduler_patience, verbose=True)
+            elif use_lr_schedule and (lr_scheduler_patience <= 0):
+                raise ValueError('Learning rate scheduling is enabled without setting the patience!')
+
+            #LOG_DIR = 
+            
+            #test_writer = SummaryWriter(log_dir=LOG_DIR)
+            
+            classifier.train()
+            
+            for index_train in range(n_epochs_train_class):
+                
+                for env in envs:
+                    env['pred'] = classifier(env['latent'].float())
+                    env['loss'] = F.nll_loss(env['pred'].float(), env['target'].long().view(-1))
+
+                output = torch.stack([env['loss'] for env in envs]).mean()
+                
+                optimizer_train.zero_grad()
+                output.backward()
+                optimizer_train.step()
+
+                if use_lr_schedule:
+                    scheduler.step(output)
+
+                if (index_train % class_print_every_n_epochs == 0) or (index_train == (n_epochs_train_class - 1)):
+                    with torch.no_grad():
+                        nll_loss = output.detach().cpu().numpy()
                         
-                acc = np.sum([env['n_correct_pred'] for env in envs]) / len(target)
-                        
-                print(f'\tepoch {index_train+1}/{n_epochs_train_class}: nll loss {nll_loss}\t train_acc {acc:.2f}')
+                        #Compute acc
+                        for env in envs:
+                            pred = env['pred'].argmax(dim = 1, keepdim = True)
+                            env['n_correct_pred'] = pred.eq(env['target'].view_as(pred)).sum().item()
+                            
+                    acc = np.sum([env['n_correct_pred'] for env in envs]) / len(target)
+                            
+                    print(f'\tepoch {index_train+1}/{n_epochs_train_class}: nll loss {nll_loss}\t train_acc {acc:.2f}')
 
-            if early_stopping and (label_tensor_val is not None):
+                if early_stopping and (label_tensor_val is not None):
+                    with torch.no_grad():
+                        y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
+                        y_true = label_tensor_val.view(-1, 1)
+
+                        # Calculate accuracy
+                        pred_val = y_pred_val.argmax(dim = 1, keepdim = True)
+                        acc_val = pred_val.eq(y_true.view_as(pred_val)).sum().item() / y_true.shape[0]
+
+                    stop_training = early_stopper.early_stop(-acc_val)
+                    if stop_training:
+                        with torch.no_grad():
+                            #Compute acc
+                            for env in envs:
+                                pred = env['pred'].argmax(dim = 1, keepdim = True)
+                                env['n_correct_pred'] = pred.eq(env['target'].view_as(pred)).sum().item()
+                                
+                        acc = np.sum([env['n_correct_pred'] for env in envs]) / len(target)
+                                
+                        print(f'Stopping training of classifier early at epoch {index_train+1}: train acc {acc:.2f}\t val acc {acc_val:.2f}')
+                        break
+
+            # Assign classifier to model to use later for test prediction
+            self.classifier = classifier
+            self.classifier.eval()
+            
+            if label_tensor_val is not None:
                 with torch.no_grad():
                     y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
                     y_true = label_tensor_val.view(-1, 1)
@@ -495,66 +592,144 @@ class inVAE(ABC):
                     pred_val = y_pred_val.argmax(dim = 1, keepdim = True)
                     acc_val = pred_val.eq(y_true.view_as(pred_val)).sum().item() / y_true.shape[0]
 
-                stop_training = early_stopper.early_stop(acc_val)
-                if stop_training:
-                    with torch.no_grad():
-                        #Compute acc
-                        for env in envs:
-                            pred = env['pred'].argmax(dim = 1, keepdim = True)
-                            env['n_correct_pred'] = pred.eq(env['target'].view_as(pred)).sum().item()
-                            
-                    acc = np.sum([env['n_correct_pred'] for env in envs]) / len(target)
-                            
-                    print(f'Stopping training of classifier early at epoch {index_train+1}: train acc {acc:.2f}\t val acc {acc_val:.2f}')
-                    break
+                print(f'\tThe val acc before optimizing the latents is: {acc_val:.3f}')
 
-        # Assign classifier to model to use later for test prediction
-        self.classifier = classifier
-        self.classifier.eval()
-        
-        if label_tensor_val is not None:
-            with torch.no_grad():
-                y_pred_val = classifier(init_z[:, :latent_dim_inv].view(-1, latent_dim_inv)).float().to(self.device)
-                y_true = label_tensor_val.view(-1, 1)
-
-                # Calculate accuracy
-                pred_val = y_pred_val.argmax(dim = 1, keepdim = True)
-                acc_val = pred_val.eq(y_true.view_as(pred_val)).sum().item() / y_true.shape[0]
-
-            print(f'\tThe val acc before optimizing the latents is: {acc_val:.3f}')
-
-        self.optimize_latent_dict = {
-            'lr_opt_val': lr_opt_val,
-            'n_epochs_opt_val': n_epochs_opt_val,
-            'nr_samples': nr_samples,
-            'sample_uniform_per_label': sample_uniform_per_label
-        }
-        
-        if (n_epochs_opt_val > 0) and (label_tensor_val is not None):
-            print('Starting to optimize sampled latents for validation data...')
-
-            # Optimize latents for val data (see function description)
-
-            final_z, acc_array = self._optimize_latents_for_prediction(
-                x = x_val, # dim: nr_obs_val x genes
-                init_z = init_z, # dim: nr_obs_val x latent_dim
-                label_tensor = label_tensor_val, # dim: nr_obs_val x 1
-                #inv_covar = inv_covar_val,
-                spur_covar = spur_covar_val
-            )
-
-            self.saved_latent['val'] = final_z.clone()
-                        
-            print('Optimizing latents for validation data done!')
+            self.optimize_latent_dict = {
+                'lr_opt_val': lr_opt_val,
+                'n_epochs_opt_val': n_epochs_opt_val,
+                'nr_samples': nr_samples,
+                'sample_uniform_per_label': sample_uniform_per_label
+            }
             
-            assert len(final_z) == nr_val_obs
+            if (n_epochs_opt_val > 0) and (label_tensor_val is not None):
+                print('Starting to optimize sampled latents for validation data...')
 
-            acc_array = acc_array / nr_val_obs
+                # Optimize latents for val data (see function description)
 
-            for i in range(0, n_epochs_opt_val, opt_val_print_every_n_epochs):
-                print(f'\tThe val acc after optimizing {i+1}/{n_epochs_opt_val} is: {acc_array[i]:.3f}')
+                final_z, acc_array = self._optimize_latents_for_prediction(
+                    x = x_val, # dim: nr_obs_val x genes
+                    init_z = init_z, # dim: nr_obs_val x latent_dim
+                    label_tensor = label_tensor_val, # dim: nr_obs_val x 1
+                    #inv_covar = inv_covar_val,
+                    spur_covar = spur_covar_val
+                )
+
+                self.saved_latent['val'] = final_z.clone()
+                            
+                print('Optimizing latents for validation data done!')
                 
-            print(f'\tThe val acc after optimizing the latents is: {acc_array[(n_epochs_opt_val - 1)]:.3f}')
+                assert len(final_z) == nr_val_obs
+
+                acc_array = acc_array / nr_val_obs
+
+                for i in range(0, n_epochs_opt_val, opt_val_print_every_n_epochs):
+                    print(f'\tThe val acc after optimizing {i+1}/{n_epochs_opt_val} is: {acc_array[i]:.3f}')
+                    
+                print(f'\tThe val acc after optimizing the latents is: {acc_array[(n_epochs_opt_val - 1)]:.3f}')
+        elif type_classifier == 'linear':
+            classifier = nn.Linear(latent_dim_inv, len(encoder_label.classes_)).to(self.device)
+
+            target = label_tensor_train.view(-1)
+
+            # dataloader
+            dataset_train = TensorDataset(latent_sample[:,:latent_dim_inv], target)
+            dataloader_train = DataLoader(dataset_train, batch_size=self.batch_size, shuffle=True)
+            
+            optimizer_train = optim.Adam(classifier.parameters(), lr = lr_train_class)
+            criterion = nn.CrossEntropyLoss()
+
+            if use_lr_schedule and lr_scheduler_patience > 0:
+                scheduler = ReduceLROnPlateau(optimizer_train, factor=0.1, patience=lr_scheduler_patience, verbose=True)
+            elif use_lr_schedule and (lr_scheduler_patience <= 0):
+                raise ValueError('Learning rate scheduling is enabled without setting the patience!')
+
+            classifier.train()
+            
+            for epoch in range(n_epochs_train_class):
+                epoch_loss = 0
+                for index_train, batch in enumerate(dataloader_train, 0):
+                    
+                    inputs, labels = batch
+
+                    optimizer_train.zero_grad()
+
+                    output = classifier(inputs)
+                    loss = criterion(output, labels)
+
+                    epoch_loss += loss.detach().cpu().numpy()
+
+                    loss.backward()
+                    optimizer_train.step()
+
+                    if use_lr_schedule:
+                        scheduler.step(loss)
+
+                if (epoch % class_print_every_n_epochs == 0) or (epoch == (n_epochs_train_class - 1)):
+                    with torch.no_grad():
+                        # Loss
+                        loss_tmp = epoch_loss / len(dataloader_train)
+                            
+                    print(f'\tepoch {epoch+1}/{n_epochs_train_class}: loss {loss_tmp:.3f}')
+
+                if early_stopping and (label_tensor_val is not None):
+                    # Implement early stopping (on val loss or val acc?)
+                    with torch.no_grad():
+                        n_correct_pred_val = 0
+                        for index_val, batch_val in enumerate(dataloader_val, 0):
+                            #Compute acc
+                            inputs_val, labels_val = batch_val
+
+                            output_val = classifier(inputs_val)
+
+                            _, pred_val = torch.max(output_val, dim = 1)
+
+                            n_correct_pred_val += pred_val.eq(labels_val.view_as(pred_val)).sum().item()
+                            
+                    acc_val = n_correct_pred_val / label_tensor_val.shape[0]
+
+                    stop_training = early_stopper.early_stop(-acc_val)
+                    if stop_training:
+                        print(f'Stopping training of classifier early at epoch {index_train+1}.')
+                        break
+
+            # Assign classifier to model to use later for test prediction
+            self.classifier = classifier
+            self.classifier.eval()
+
+            # Train acc
+            with torch.no_grad():
+                n_correct_pred_train = 0
+                for index_train, batch in enumerate(dataloader_train, 0):
+                    #Compute acc
+                    inputs, labels = batch
+
+                    output = self.classifier(inputs)
+
+                    _, pred = torch.max(output, dim = 1)
+
+                    n_correct_pred_train += pred.eq(labels.view_as(pred)).sum().item()
+                        
+                acc_train = n_correct_pred_train / label_tensor_train.shape[0]
+
+            print(f'\tThe train acc is: {acc_train:.3f}')
+            
+            # Val acc
+            if label_tensor_val is not None:
+                with torch.no_grad():
+                    n_correct_pred_val = 0
+                    for index_val, batch in enumerate(dataloader_val, 0):
+                        #Compute acc
+                        inputs, labels = batch
+
+                        output = self.classifier(inputs)
+
+                        _, pred = torch.max(output, dim = 1)
+
+                        n_correct_pred_val += pred.eq(labels.view_as(pred)).sum().item()
+                            
+                    acc_val = n_correct_pred_val / label_tensor_val.shape[0]
+
+                print(f'\tThe val acc is: {acc_val:.3f}')
 
     def train(
         self,
